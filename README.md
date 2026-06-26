@@ -1,23 +1,12 @@
 # Bonfire
 
-Bonfire is a private local AI assistant for a single Windows machine.
+Bonfire is my private local AI assistant running on my Windows PC!
 
-It runs a real chat UI, a local llama.cpp model server, SearXNG web search, Playwright page reading, SQLite history, prompt presets, local memory, and an optional Tailscale Funnel switch for using it away from the desk.
+It runs a chat UI, a local llama.cpp model server, SearXNG web search, Playwright page reading, SQLite history, prompt presets, local memory, and an optional Tailscale Funnel switch for using it away from my desk.
 
-It is the kind of app you leave running when you want a fast, sharp, local assistant, then shut down when you want the GPU back for games.
+It's a small and fast local assistant, with lots of systems built around it that make it smarter.
 
 ![Bonfire new chat on desktop](docs/bonfire-new-chat-desktop.png)
-
-## Why This Is Nice
-
-- It is local-first. Chats, settings, memories, and prompt layers live on the machine.
-- It streams like a normal modern chat app, not like a terminal bolted to a model.
-- Web search uses local SearXNG, reranks query variants, reads top pages, and can show image results.
-- Prompt modes are editable. General, Coding, and NSFW are built in, and custom presets can be added.
-- Tailscale Funnel is a setting, not a permanent accident. Turn it on when you need remote access, off when you do not.
-- Shutdown is in the UI. Settings -> Status -> Shut down Bonfire stops the backend, frontend, model server, SearXNG, and Funnel routes.
-
-![Bonfire new chat on mobile](docs/bonfire-new-chat-mobile.png)
 
 ## The Shape Of It
 
