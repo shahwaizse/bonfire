@@ -1,0 +1,34 @@
+# Models (large binaries)
+models/*.gguf
+
+# llama.cpp (cloned source + build output)
+vendor/llama.cpp/
+
+# Backend
+backend/.venv/
+backend/.env
+backend/data/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.log
+backend/backend_stdout.log
+backend/backend_stderr.log
+backend/.pytest_cache/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.next/
+frontend/.env.local
+frontend/frontend_dev.log
+frontend/frontend_dev_err.log
+frontend/playwright-report/
+frontend/test-results/
+frontend/tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# Logs created during setup
+install_log.txt
+vendor/llama_build_log.txt
+vendor/llama_server_log.txt
+vendor/llama_server_stdout.txt

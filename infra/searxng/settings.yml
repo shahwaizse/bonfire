@@ -1,0 +1,15 @@
+use_default_settings: true
+
+general:
+  instance_name: "bonfire-search"
+
+server:
+  secret_key: "d0e1aac7f5bf43803a46959a25c9ae6fd6557c48fdab2cfd7a70e1440a6066b8"
+  limiter: false
+  image_proxy: true
+
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json
