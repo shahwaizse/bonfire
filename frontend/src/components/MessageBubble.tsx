@@ -41,8 +41,14 @@ export default function MessageBubble({ message, active = false, activity = [] }
         {active && activity.length > 0 && <ActivityPanel activity={activity} />}
 
         {hasContent && (
-          <Bubble align={isUser ? "end" : "start"} variant={isUser ? "tinted" : "outline"} className={isUser ? "max-w-[78%]" : "max-w-full"}>
-            <BubbleContent className={isUser ? "border-primary/20 bg-primary/20" : "border-border/70 bg-card/80"}>
+          <Bubble align={isUser ? "end" : "start"} variant={isUser ? "default" : "outline"} className={isUser ? "max-w-[78%]" : "max-w-full"}>
+            <BubbleContent
+              className={
+                isUser
+                  ? "border-primary/40 !bg-primary !text-primary-foreground shadow-lg shadow-primary/10"
+                  : "border-border/70 bg-card/80"
+              }
+            >
               {isUser ? (
                 <p className="whitespace-pre-wrap">{message.content}</p>
               ) : (

@@ -10,13 +10,12 @@ import type {
 function resolveBackendUrl() {
   const localBackend = "http://127.0.0.1:8000";
   const configuredBackend = import.meta.env.VITE_BACKEND_URL;
-  if (configuredBackend) return configuredBackend;
-  if (typeof window === "undefined") return localBackend;
+  if (typeof window === "undefined") return configuredBackend || localBackend;
 
   const host = window.location.hostname;
-  if (host === "127.0.0.1" || host === "localhost") return localBackend;
   if (window.location.protocol === "https:" && host.endsWith(".ts.net")) return `https://${host}:8443`;
-  return localBackend;
+  if (host === "127.0.0.1" || host === "localhost") return configuredBackend || localBackend;
+  return configuredBackend || localBackend;
 }
 
 export const BACKEND_URL = resolveBackendUrl();
