@@ -19,7 +19,7 @@ export default defineConfig({
     timeout: 30_000,
     env: {
       ...process.env,
-      VITE_BACKEND_URL: "http://127.0.0.1:8000",
+      VITE_BACKEND_URL: process.env.VITE_BACKEND_URL || "http://127.0.0.1:8000",
     },
   },
   projects: [

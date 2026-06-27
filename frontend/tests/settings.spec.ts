@@ -47,8 +47,8 @@ test("lists the three built-in presets and can expand one", async ({ page }) => 
   await expect(panel.getByText("Coding", { exact: true })).toBeVisible();
   await expect(panel.getByText("NSFW", { exact: true })).toBeVisible();
 
-  await panel.getByText("Coding", { exact: true }).click();
-  const textarea = panel.locator("textarea").first();
+  await panel.getByTestId("preset-card-coding").getByRole("button").first().click();
+  const textarea = panel.getByLabel("Coding system prompt");
   await expect(textarea).toBeVisible();
   await expect(textarea).toHaveValue(/Coding mode/);
 });
@@ -57,11 +57,11 @@ test("editing a preset prompt enables the Save button", async ({ page }) => {
   await page.goto("/");
   await openSettings(page);
   const panel = page.getByTestId("settings-panel");
-  await panel.getByText("General", { exact: true }).click();
+  await panel.getByTestId("preset-card-general").getByRole("button").first().click();
 
-  const textarea = panel.locator("textarea").first();
+  const textarea = panel.getByLabel("General system prompt");
   const original = await textarea.inputValue();
-  const saveButton = panel.getByRole("button", { name: "Save", exact: true });
+  const saveButton = panel.getByRole("button", { name: "Save General preset" });
 
   await expect(saveButton).toBeDisabled();
   await textarea.fill(original + " Stay upbeat.");
@@ -80,6 +80,6 @@ test("switching to custom mode reveals a prompt textarea", async ({ page }) => {
 test("closing settings returns focus to the chat", async ({ page }) => {
   await page.goto("/");
   await openSettings(page);
-  await page.getByRole("button", { name: "Close settings" }).click();
+  await page.getByRole("button", { name: "Close" }).click();
   await expect(page.getByRole("heading", { name: "Settings" })).toHaveCount(0);
 });

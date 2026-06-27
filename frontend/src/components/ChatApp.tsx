@@ -457,9 +457,10 @@ export default function ChatApp() {
           </main>
         ) : (
           <>
+            <main className="flex min-h-0 flex-1 flex-col" aria-label="Messages">
             <MessageScrollerProvider>
               <MessageScroller className="flex-1">
-                <MessageScrollerViewport>
+                <MessageScrollerViewport data-testid="message-viewport">
                   <MessageScrollerContent className="mx-auto w-full max-w-[840px] gap-5 px-3 py-5 sm:px-6">
                     {messages.map((message, index) => (
                       <MessageScrollerItem key={message.id}>
@@ -479,6 +480,7 @@ export default function ChatApp() {
                 </MessageScrollerButton>
               </MessageScroller>
             </MessageScrollerProvider>
+            </main>
             <footer className="flex-none border-t bg-background/78 px-0 py-3 backdrop-blur-xl">
               <ComposerBar
                 value={input}

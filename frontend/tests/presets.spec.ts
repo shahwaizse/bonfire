@@ -19,7 +19,9 @@ test("auto-routes a coding question to the Coding preset", async ({ page }) => {
   // The "Routing to X..." status is intentionally transient (replaced by
   // "Generating answer..." within the same render pass) -- the durable
   // signal is the preset badge stamped on the assistant's message.
-  await expect(page.locator("main").getByText("Coding", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("main", { name: "Messages" }).getByText("Coding", { exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
 });
 
 test("auto-routes an explicit creative request to the NSFW preset", async ({ page }) => {
@@ -28,17 +30,21 @@ test("auto-routes an explicit creative request to the NSFW preset", async ({ pag
   await input.fill("Write an explicit erotic scene between two consenting adults.");
   await page.getByRole("button", { name: "Send message" }).click();
 
-  await expect(page.locator("main").getByText("NSFW", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("main", { name: "Messages" }).getByText("NSFW", { exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
 });
 
 test("manually pinning a preset overrides auto-routing", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Auto", exact: true }).click();
+  await page.getByRole("combobox", { name: "Response mode" }).click();
   await page.getByRole("option", { name: /Coding/ }).click();
 
   const input = page.getByPlaceholder("Ask anything...");
   await input.fill("What's a good way to spend a rainy Sunday?");
   await page.getByRole("button", { name: "Send message" }).click();
 
-  await expect(page.locator("main").getByText("Coding", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("main", { name: "Messages" }).getByText("Coding", { exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
 });

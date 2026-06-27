@@ -16,8 +16,7 @@ test("loads to the empty state with a focused composer", async ({ page }) => {
 
 test("llama.cpp status indicator goes green", async ({ page }) => {
   await page.goto("/");
-  const dot = page.locator('span[title="llama.cpp online"]');
-  await expect(dot).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('[aria-label="llama.cpp online"]:visible')).toBeVisible({ timeout: 15_000 });
 });
 
 test("sends a message and streams a real response", async ({ page }) => {
@@ -26,7 +25,9 @@ test("sends a message and streams a real response", async ({ page }) => {
   await input.fill("Reply with exactly: bonfire chat works");
   await page.getByRole("button", { name: "Send message" }).click();
 
-  await expect(page.getByText("bonfire chat works")).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('[data-message-role="assistant"]').getByText("bonfire chat works")).toBeVisible({
+    timeout: 30_000,
+  });
   // Send is disabled again once the stream completes (button re-enables only with text in the box).
   await expect(page.getByPlaceholder("Ask anything...")).toHaveValue("");
 });
@@ -54,7 +55,7 @@ test("does not force-scroll to the bottom when a long answer arrives", async ({ 
   await expect(page.getByText("stream line 1", { exact: true })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
 
-  const transcript = page.locator("main").last();
+  const transcript = page.getByTestId("message-viewport");
   const isPinnedAboveBottom = await transcript.evaluate((el) => el.scrollTop + el.clientHeight < el.scrollHeight - 80);
   expect(isPinnedAboveBottom).toBe(true);
 });
@@ -64,7 +65,9 @@ test("starting a new chat clears the conversation and returns to empty state", a
   const input = page.getByPlaceholder("Ask anything...");
   await input.fill("Reply with exactly: first conversation");
   await page.getByRole("button", { name: "Send message" }).click();
-  await expect(page.getByText("first conversation").first()).toBeVisible({ timeout: 30_000 });
+  await expect(
+    page.getByRole("main", { name: "Messages" }).getByText("Reply with exactly: first conversation")
+  ).toBeVisible({ timeout: 30_000 });
 
   const isMobile = (page.viewportSize()?.width ?? 1440) < 700;
   if (isMobile) {
@@ -72,5 +75,5 @@ test("starting a new chat clears the conversation and returns to empty state", a
   }
   await page.getByRole("button", { name: "New chat" }).click();
   await expect(page.getByPlaceholder("Ask anything...")).toBeVisible();
-  await expect(page.getByText("first conversation")).toHaveCount(0);
+  await expect(page.getByRole("main").getByText("first conversation")).toHaveCount(0);
 });

@@ -197,6 +197,7 @@ function PromptTab({
               disabled={customDraft === settings.custom_prompt}
               className="mt-2"
               size="sm"
+              aria-label="Save custom prompt"
             >
               <Save />
               Save
@@ -223,6 +224,7 @@ function PromptTab({
             onClick={() => onUpdateSettings({ core_system_prompt: coreDraft })}
             disabled={coreDraft === settings.core_system_prompt}
             size="sm"
+            aria-label="Save core system prompt"
           >
             <Save />
             Save
@@ -472,7 +474,7 @@ function PresetCard({
   useEffect(() => setPrompt(preset.system_prompt), [preset.system_prompt]);
 
   return (
-    <article className="rounded-xl border bg-card/68">
+    <article className="rounded-xl border bg-card/68" data-testid={`preset-card-${preset.id}`}>
       <button type="button" onClick={() => setExpanded((value) => !value)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left">
         <span className="min-w-0">
           <span className="block truncate text-sm font-medium">{preset.name}</span>
@@ -490,7 +492,13 @@ function PresetCard({
             aria-label={`${preset.name} system prompt`}
           />
           <div className="flex items-center justify-between gap-3">
-            <Button type="button" onClick={() => onSave(preset.id, { system_prompt: prompt })} disabled={prompt === preset.system_prompt} size="sm">
+            <Button
+              type="button"
+              onClick={() => onSave(preset.id, { system_prompt: prompt })}
+              disabled={prompt === preset.system_prompt}
+              size="sm"
+              aria-label={`Save ${preset.name} preset`}
+            >
               <Save />
               Save
             </Button>

@@ -325,7 +325,12 @@ function SidebarContent({
                                     <Pencil />
                                     Rename
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => openMove(conversation)}>
+                                  <DropdownMenuItem
+                                    onSelect={(event) => {
+                                      event.preventDefault();
+                                      openMove(conversation);
+                                    }}
+                                  >
                                     <Folder />
                                     Move to folder
                                   </DropdownMenuItem>
@@ -350,9 +355,19 @@ function SidebarContent({
 
       <Separator />
       <div className="flex flex-none flex-col gap-2 p-3">
-        <div className={`flex h-9 items-center rounded-lg border bg-background/55 px-2.5 text-xs text-muted-foreground ${collapsed && !mobile ? "justify-center px-0" : "justify-between"}`}>
+        <div
+          className={`flex h-9 items-center rounded-lg border bg-background/55 px-2.5 text-xs text-muted-foreground ${
+            collapsed && !mobile ? "justify-center px-0" : "justify-between"
+          }`}
+          role="status"
+          aria-label={llamaOnline ? "llama.cpp online" : "llama.cpp offline"}
+        >
           <span className={collapsed && !mobile ? "sr-only" : "truncate"}>{modelName}</span>
-          <Badge variant={llamaOnline ? "secondary" : "destructive"} className="size-2 rounded-full p-0" title={llamaOnline ? "llama.cpp online" : "llama.cpp offline"} />
+          <Badge
+            variant={llamaOnline ? "secondary" : "destructive"}
+            className="size-2 rounded-full p-0"
+            aria-hidden="true"
+          />
         </div>
         <Button
           type="button"
