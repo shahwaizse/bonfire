@@ -1,12 +1,12 @@
 import { expect, test } from "@playwright/test";
 
-const BACKEND_URL = "http://127.0.0.1:8000";
+const BACKEND_URL = process.env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
 
 // Auto-routing only happens in "auto" mode; reset it so an earlier
 // settings.spec.ts run (or test order) can't leave this pinned/custom.
 test.beforeEach(async ({ request }) => {
   await request.put(`${BACKEND_URL}/settings`, {
-    data: { prompt_mode: "auto", guardrails: "", search_default: false, memory_enabled: false },
+    data: { prompt_mode: "auto", guardrails: "", search_default: false },
   });
 });
 

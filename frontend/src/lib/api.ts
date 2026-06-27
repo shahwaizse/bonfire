@@ -3,33 +3,35 @@ import type {
   ConversationDetailOut,
   ConversationOut,
   FunnelStatus,
-  MemoryGraph,
-  MemoryItem,
-  MemoryStatus,
   Preset,
   Settings,
 } from "./types";
 
 function resolveBackendUrl() {
   const localBackend = "http://127.0.0.1:8000";
-  if (typeof window === "undefined") {
-    return import.meta.env.VITE_BACKEND_URL || localBackend;
-  }
+  const configuredBackend = import.meta.env.VITE_BACKEND_URL;
+  if (configuredBackend) return configuredBackend;
+  if (typeof window === "undefined") return localBackend;
 
   const host = window.location.hostname;
-  if (host === "127.0.0.1" || host === "localhost") {
-    return localBackend;
-  }
-  if (window.location.protocol === "https:" && host.endsWith(".ts.net")) {
-    return `https://${host}:8443`;
-  }
-  return import.meta.env.VITE_BACKEND_URL || localBackend;
+  if (host === "127.0.0.1" || host === "localhost") return localBackend;
+  if (window.location.protocol === "https:" && host.endsWith(".ts.net")) return `https://${host}:8443`;
+  return localBackend;
 }
 
 export const BACKEND_URL = resolveBackendUrl();
 
 async function asJson<T>(res: Response, errorMessage: string): Promise<T> {
-  if (!res.ok) throw new Error(`${errorMessage} (${res.status})`);
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const body = await res.json();
+      if (typeof body?.detail === "string") detail = `: ${body.detail}`;
+    } catch {
+      // Status-only fallback for non-JSON errors.
+    }
+    throw new Error(`${errorMessage} (${res.status})${detail}`);
+  }
   return res.json();
 }
 
@@ -56,6 +58,11 @@ export async function updateConversation(
     body: JSON.stringify(input),
   });
   return asJson(res, "Failed to update conversation");
+}
+
+export async function clearAllChats(): Promise<{ conversations_deleted: number }> {
+  const res = await fetch(`${BACKEND_URL}/conversations`, { method: "DELETE" });
+  return asJson(res, "Failed to clear all chats");
 }
 
 export async function checkHealth(): Promise<{ status: string; llama_cpp: boolean }> {
@@ -131,67 +138,6 @@ export async function shutdownBonfire(): Promise<void> {
   if (!res.ok) throw new Error(`Failed to shut down Bonfire (${res.status})`);
 }
 
-export async function fetchMemories(params: {
-  query?: string;
-  includeArchived?: boolean;
-} = {}): Promise<MemoryItem[]> {
-  const url = new URL(`${BACKEND_URL}/memories`);
-  if (params.query) url.searchParams.set("query", params.query);
-  if (params.includeArchived) url.searchParams.set("include_archived", "true");
-  return asJson(await fetch(url), "Failed to load memories");
-}
-
-export async function fetchMemoryStatus(): Promise<MemoryStatus> {
-  return asJson(await fetch(`${BACKEND_URL}/memories/status`), "Failed to load memory status");
-}
-
-export async function fetchMemoryGraph(): Promise<MemoryGraph> {
-  return asJson(await fetch(`${BACKEND_URL}/memories/graph`), "Failed to load memory graph");
-}
-
-export async function createMemory(input: {
-  text: string;
-  kind: MemoryItem["kind"];
-  topics?: string[];
-  entities?: string[];
-  confidence?: number;
-  pinned?: boolean;
-}): Promise<MemoryItem> {
-  const res = await fetch(`${BACKEND_URL}/memories`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
-  return asJson(res, "Failed to create memory");
-}
-
-export async function updateMemory(
-  id: string,
-  input: Partial<Pick<MemoryItem, "text" | "kind" | "topics" | "entities" | "confidence" | "pinned" | "archived">>
-): Promise<MemoryItem> {
-  const res = await fetch(`${BACKEND_URL}/memories/${id}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
-  return asJson(res, "Failed to update memory");
-}
-
-export async function deleteMemory(id: string): Promise<void> {
-  const res = await fetch(`${BACKEND_URL}/memories/${id}`, { method: "DELETE" });
-  if (!res.ok) throw new Error(`Failed to delete memory (${res.status})`);
-}
-
-export async function clearMemories(): Promise<void> {
-  const res = await fetch(`${BACKEND_URL}/memories`, { method: "DELETE" });
-  if (!res.ok) throw new Error(`Failed to clear memories (${res.status})`);
-}
-
-export async function rebuildMemoryIndex(): Promise<MemoryStatus> {
-  const res = await fetch(`${BACKEND_URL}/memories/rebuild`, { method: "POST" });
-  return asJson(res, "Failed to rebuild memory index");
-}
-
 export async function* streamChat(params: {
   conversationId: string | null;
   message: string;
@@ -228,14 +174,10 @@ export async function* streamChat(params: {
     while (newlineIdx >= 0) {
       const line = buffer.slice(0, newlineIdx).trim();
       buffer = buffer.slice(newlineIdx + 1);
-      if (line) {
-        yield JSON.parse(line) as ChatEvent;
-      }
+      if (line) yield JSON.parse(line) as ChatEvent;
       newlineIdx = buffer.indexOf("\n");
     }
   }
 
-  if (buffer.trim()) {
-    yield JSON.parse(buffer.trim()) as ChatEvent;
-  }
+  if (buffer.trim()) yield JSON.parse(buffer.trim()) as ChatEvent;
 }

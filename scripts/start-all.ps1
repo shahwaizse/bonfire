@@ -1,5 +1,5 @@
 <#
-Launches SearXNG (Docker), llama.cpp server, FastAPI backend, and the
+Launches SearXNG (Docker), llama.cpp, Express backend, and the
 Vite frontend, each in its own PowerShell window.
 #>
 $ErrorActionPreference = "Stop"
@@ -26,7 +26,7 @@ if (-not $ready) {
     Write-Warning "llama.cpp server did not respond on /health within timeout. Continuing anyway."
 }
 
-Write-Host "Starting FastAPI backend in a new window..."
+Write-Host "Starting Express backend in a new window..."
 Start-Process powershell -ArgumentList "-NoExit", "-File", (Join-Path $scriptsDir "start-backend.ps1")
 
 Write-Host "Starting Vite frontend in a new window..."

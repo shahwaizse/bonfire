@@ -32,3 +32,9 @@ install_log.txt
 vendor/llama_build_log.txt
 vendor/llama_server_log.txt
 vendor/llama_server_stdout.txt
+
+# Node backend
+backend/node_modules/
+
+# Local test caches
+.pytest_cache/

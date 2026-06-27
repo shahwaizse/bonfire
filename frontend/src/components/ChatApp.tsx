@@ -1,9 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { Menu, Search, Sparkles, Square, Wifi, WifiOff } from "lucide-react";
 import Sidebar from "./Sidebar";
 import MessageBubble from "./MessageBubble";
-import SettingsPanel from "./SettingsPanel";
 import ComposerBar from "./ComposerBar";
-import { Icon } from "./icons";
+import { Button } from "@/components/ui/button";
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from "@/components/ui/message-scroller";
 import {
   checkHealth,
   createPreset,
@@ -25,7 +33,6 @@ import type {
   ActivityKind,
   ConversationOut,
   DisplayMessage,
-  MemoryReference,
   PageReadResult,
   Preset,
   SearchResultItem,
@@ -34,6 +41,7 @@ import type {
 
 const sidebarStorageKey = "bonfire-sidebar-collapsed";
 const modelName = "Dolphin 3.0 Llama 3.1 8B";
+const SettingsPanel = lazy(() => import("./SettingsPanel"));
 
 function activityId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -49,21 +57,10 @@ function nowIso() {
 
 function activityFromStatus(status: string): ActivityEvent {
   const lower = status.toLowerCase();
-  if (lower.includes("search failed") || lower.includes("page read failed")) {
-    return makeActivity("error", status);
-  }
-  if (lower.includes("remember") || lower.includes("memory")) {
-    return makeActivity("memory", "Remembering", status);
-  }
-  if (lower.includes("search")) {
-    return makeActivity("search", "Searching the web", status);
-  }
-  if (lower.includes("read")) {
-    return makeActivity("read", "Reading source", status);
-  }
-  if (lower.includes("generating")) {
-    return makeActivity("generate", "Writing response", status);
-  }
+  if (lower.includes("failed")) return makeActivity("error", status);
+  if (lower.includes("search")) return makeActivity("search", "Searching web", status);
+  if (lower.includes("read")) return makeActivity("read", "Reading sources", status);
+  if (lower.includes("generating")) return makeActivity("generate", "Writing response", status);
   return makeActivity("generate", status);
 }
 
@@ -83,7 +80,6 @@ export default function ChatApp() {
   const [presetOverride, setPresetOverride] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [generatingIds, setGeneratingIds] = useState<Set<string>>(() => new Set());
-  const bottomRef = useRef<HTMLDivElement>(null);
   const activeIdRef = useRef<string | null>(null);
   const streamConversationIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -94,7 +90,7 @@ export default function ChatApp() {
     presets.find((preset) => preset.id === id)?.name ?? (id ? id[0].toUpperCase() + id.slice(1) : undefined);
 
   const pushActivity = (event: ActivityEvent) => {
-    setActivity((current) => [...current.slice(-6), event]);
+    setActivity((current) => [...current.slice(-5), event]);
   };
 
   const refreshConversations = async () => {
@@ -112,10 +108,7 @@ export default function ChatApp() {
   };
 
   const upsertConversation = (conversation: ConversationOut) => {
-    setConversations((current) => {
-      const without = current.filter((item) => item.id !== conversation.id);
-      return [conversation, ...without];
-    });
+    setConversations((current) => [conversation, ...current.filter((item) => item.id !== conversation.id)]);
   };
 
   const updateConversationTitle = (id: string, title: string) => {
@@ -154,16 +147,8 @@ export default function ChatApp() {
         });
     };
 
-    fetchConversations()
-      .then((list) => {
-        if (!ignore) setConversations(list);
-      })
-      .catch(() => {});
-    fetchPresets()
-      .then((list) => {
-        if (!ignore) setPresets(list);
-      })
-      .catch(() => {});
+    fetchConversations().then((list) => !ignore && setConversations(list)).catch(() => {});
+    fetchPresets().then((list) => !ignore && setPresets(list)).catch(() => {});
     fetchSettings()
       .then((nextSettings) => {
         if (!ignore) {
@@ -182,26 +167,21 @@ export default function ChatApp() {
   }, []);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, activity]);
-
-  useEffect(() => {
     activeIdRef.current = activeId;
   }, [activeId]);
 
   const loadConversationMessages = async (id: string) => {
     const detail = await fetchConversation(id);
-    setMessages(
-      detail.messages
-        .filter((message) => message.role !== "system")
-        .map((message) => ({
-          id: String(message.id),
-          role: message.role as "user" | "assistant",
-          content: message.content,
-          sources: message.sources ?? undefined,
-          presetName: message.role === "assistant" ? presetNameById(message.preset_id) : undefined,
-        }))
-    );
+    const loaded = detail.messages
+      .filter((message) => message.role !== "system")
+      .map((message) => ({
+        id: String(message.id),
+        role: message.role as "user" | "assistant",
+        content: message.content,
+        sources: message.sources ?? undefined,
+        presetName: message.role === "assistant" ? presetNameById(message.preset_id) : undefined,
+      }));
+    setMessages(loaded);
   };
 
   const handleSelectConversation = async (id: string) => {
@@ -233,9 +213,7 @@ export default function ChatApp() {
     );
     try {
       const updated = await updateConversation(id, { title });
-      setConversations((current) =>
-        current.map((conversation) => (conversation.id === id ? updated : conversation))
-      );
+      setConversations((current) => current.map((conversation) => (conversation.id === id ? updated : conversation)));
     } catch {
       refreshConversations();
     }
@@ -246,13 +224,8 @@ export default function ChatApp() {
       current.map((conversation) => (conversation.id === id ? { ...conversation, folder } : conversation))
     );
     try {
-      const updated = await updateConversation(id, { folder });
-      const manualTitle = manualTitlesRef.current.get(id);
-      setConversations((current) =>
-        current.map((conversation) =>
-          conversation.id === id ? { ...updated, title: manualTitle ?? updated.title } : conversation
-        )
-      );
+      await updateConversation(id, { folder });
+      refreshConversations();
     } catch {
       refreshConversations();
     }
@@ -278,36 +251,20 @@ export default function ChatApp() {
     }
   };
 
-  const handleShutdown = async () => {
-    await shutdownBonfire();
-  };
-
   const handleSavePreset = async (id: string, patch: Partial<Preset>) => {
-    try {
-      await updatePreset(id, patch);
-      refreshPresets();
-    } catch {
-      // Best effort.
-    }
+    await updatePreset(id, patch).catch(() => {});
+    refreshPresets();
   };
 
   const handleCreatePreset = async (draft: { name: string; description: string; system_prompt: string }) => {
-    try {
-      await createPreset({ ...draft, keywords: [] });
-      refreshPresets();
-    } catch {
-      // Best effort.
-    }
+    await createPreset({ ...draft, keywords: [] }).catch(() => {});
+    refreshPresets();
   };
 
   const handleDeletePreset = async (id: string) => {
-    try {
-      await deletePreset(id);
-      if (presetOverride === id) setPresetOverride(null);
-      refreshPresets();
-    } catch {
-      // Best effort.
-    }
+    await deletePreset(id).catch(() => {});
+    if (presetOverride === id) setPresetOverride(null);
+    refreshPresets();
   };
 
   const updateLastAssistant = (patch: Partial<DisplayMessage> | ((message: DisplayMessage) => DisplayMessage)) => {
@@ -323,10 +280,6 @@ export default function ChatApp() {
 
   const addSourcesToLastAssistant = (sources: SearchResultItem[]) => {
     updateLastAssistant((message) => ({ ...message, sources }));
-  };
-
-  const addMemoriesToLastAssistant = (memories: MemoryReference[]) => {
-    updateLastAssistant((message) => ({ ...message, memorySources: memories }));
   };
 
   const handlePageRead = (page: PageReadResult) => {
@@ -369,11 +322,7 @@ export default function ChatApp() {
               created_at: nowIso(),
               updated_at: nowIso(),
             });
-            setGeneratingIds((current) => {
-              const next = new Set(current);
-              next.add(event.data.conversation_id);
-              return next;
-            });
+            setGeneratingIds((current) => new Set(current).add(event.data.conversation_id));
             if (activeIdRef.current === null) {
               setActiveId(event.data.conversation_id);
               activeIdRef.current = event.data.conversation_id;
@@ -390,23 +339,9 @@ export default function ChatApp() {
           case "status":
             pushActivity(activityFromStatus(event.data));
             break;
-          case "memory":
-            addMemoriesToLastAssistant(event.data);
-            pushActivity(makeActivity("memory", `Used ${event.data.length} memories`, event.data[0]?.text));
-            break;
-          case "memory_update": {
-            const created = event.data.created.length;
-            const archived = event.data.archived.length;
-            if (created || archived) {
-              const label = created && archived ? "Memory updated" : created ? "Memory saved" : "Memory archived";
-              const detail = event.data.created[0]?.text ?? event.data.archived[0]?.text;
-              pushActivity(makeActivity("memory", label, detail));
-            }
-            break;
-          }
           case "search_results":
             addSourcesToLastAssistant(event.data);
-            pushActivity(makeActivity("result", `Found ${event.data.length} results`, event.data[0]?.title));
+            pushActivity(makeActivity("result", `Found ${event.data.length} sources`, event.data[0]?.title));
             break;
           case "page_read":
             handlePageRead(event.data);
@@ -433,10 +368,7 @@ export default function ChatApp() {
       }
       const message = error instanceof Error ? error.message : "Unknown error";
       pushActivity(makeActivity("error", message));
-      updateLastAssistant((last) => ({
-        ...last,
-        content: last.content + `\n\n_Error: ${message}_`,
-      }));
+      updateLastAssistant((last) => ({ ...last, content: last.content + `\n\n_Error: ${message}_` }));
     } finally {
       const completedConversationId = streamConversationIdRef.current;
       setIsStreaming(false);
@@ -466,7 +398,7 @@ export default function ChatApp() {
   };
 
   return (
-    <div className="relative flex h-screen overflow-hidden bg-bg text-ink">
+    <div className="relative flex h-screen overflow-hidden bg-background text-foreground">
       <Sidebar
         conversations={conversations}
         activeId={activeId}
@@ -488,55 +420,66 @@ export default function ChatApp() {
         }}
       />
 
-      <div className="relative flex min-w-0 flex-1 flex-col">
-        <button
-          type="button"
-          onClick={() => setSidebarOpen(true)}
-          className="absolute left-3 top-3 z-20 grid h-10 w-10 place-items-center rounded-lg border border-line bg-surface/90 text-ink-dim shadow-[0_14px_40px_rgba(0,0,0,0.34)] backdrop-blur transition hover:border-line-strong hover:text-ink sm:hidden"
-          aria-label="Open conversations"
-          title="Open conversations"
-        >
-          <Icon name="menu" className="h-4 w-4" />
-        </button>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-14 flex-none items-center justify-between border-b bg-background/78 px-3 backdrop-blur-xl sm:hidden">
+          <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} aria-label="Open conversations">
+            <Menu />
+          </Button>
+          <div className="flex min-w-0 items-center gap-2">
+            <Sparkles className="size-4 text-primary" />
+            <span className="truncate text-sm font-medium">Bonfire</span>
+          </div>
+          <StatusDot online={llamaOnline} />
+        </header>
 
         {messages.length === 0 ? (
-          <main className="flex min-h-0 flex-1 flex-col items-center justify-center px-3 pt-16">
-            <div className="mb-6 w-full max-w-[780px] px-3 text-center">
-              <h1 className="text-2xl font-semibold text-ink sm:text-3xl">Sic parvis magna</h1>
+          <main className="flex min-h-0 flex-1 flex-col items-center justify-center px-3 py-8">
+            <div className="mb-6 flex w-full max-w-[780px] flex-col items-center gap-3 text-center">
+              <div className="grid size-10 place-items-center rounded-xl border bg-card text-primary shadow-sm">
+                <Sparkles className="size-5" />
+              </div>
+              <h1 className="text-2xl font-semibold sm:text-3xl">Sic parvis magna</h1>
             </div>
-            <div className="w-full">
-              <ComposerBar
-                value={input}
-                onChange={setInput}
-                onSend={handleSend}
-                onStop={handleStop}
-                disabled={isStreaming}
-                isStreaming={isStreaming}
-                searchEnabled={searchEnabled}
-                onSearchEnabledChange={setSearchEnabled}
-                presets={presets}
-                presetOverride={presetOverride}
-                onPresetOverrideChange={setPresetOverride}
-                autoFocus
-              />
-            </div>
+            <ComposerBar
+              value={input}
+              onChange={setInput}
+              onSend={handleSend}
+              onStop={handleStop}
+              disabled={isStreaming}
+              isStreaming={isStreaming}
+              searchEnabled={searchEnabled}
+              onSearchEnabledChange={setSearchEnabled}
+              presets={presets}
+              presetOverride={presetOverride}
+              onPresetOverrideChange={setPresetOverride}
+              autoFocus
+            />
           </main>
         ) : (
           <>
-            <main className="min-h-0 flex-1 overflow-y-auto px-3 pb-4 pt-16 sm:px-6 sm:pt-6">
-              <div className="mx-auto flex max-w-[820px] flex-col gap-4">
-                {messages.map((message, index) => (
-                  <MessageBubble
-                    key={message.id}
-                    message={message}
-                    active={isStreaming && index === messages.length - 1 && message.role === "assistant"}
-                    activity={activity}
-                  />
-                ))}
-                <div ref={bottomRef} />
-              </div>
-            </main>
-            <footer className="flex-none pt-1">
+            <MessageScrollerProvider>
+              <MessageScroller className="flex-1">
+                <MessageScrollerViewport>
+                  <MessageScrollerContent className="mx-auto w-full max-w-[840px] gap-5 px-3 py-5 sm:px-6">
+                    {messages.map((message, index) => (
+                      <MessageScrollerItem key={message.id}>
+                        <MessageBubble
+                          message={message}
+                          active={isStreaming && index === messages.length - 1 && message.role === "assistant"}
+                          activity={activity}
+                        />
+                      </MessageScrollerItem>
+                    ))}
+                    <MessageScrollerItem scrollAnchor />
+                  </MessageScrollerContent>
+                </MessageScrollerViewport>
+                <MessageScrollerButton size="sm" className="gap-1.5 shadow-lg">
+                  <Search className="size-4" />
+                  <span className="ml-1 text-xs">Jump to latest</span>
+                </MessageScrollerButton>
+              </MessageScroller>
+            </MessageScrollerProvider>
+            <footer className="flex-none border-t bg-background/78 px-0 py-3 backdrop-blur-xl">
               <ComposerBar
                 value={input}
                 onChange={setInput}
@@ -555,19 +498,43 @@ export default function ChatApp() {
         )}
       </div>
 
-      <SettingsPanel
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        llamaOnline={llamaOnline}
-        settings={settings}
-        onUpdateSettings={handleUpdateSettings}
-        onSetFunnelEnabled={handleSetFunnelEnabled}
-        onShutdown={handleShutdown}
-        presets={presets}
-        onSavePreset={handleSavePreset}
-        onCreatePreset={handleCreatePreset}
-        onDeletePreset={handleDeletePreset}
-      />
+      {settingsOpen && (
+        <Suspense fallback={null}>
+          <SettingsPanel
+            open={settingsOpen}
+            onClose={() => setSettingsOpen(false)}
+            llamaOnline={llamaOnline}
+            settings={settings}
+            onUpdateSettings={handleUpdateSettings}
+            onSetFunnelEnabled={handleSetFunnelEnabled}
+            onShutdown={shutdownBonfire}
+            onClearAllChats={() => {
+              handleNewChat();
+              refreshConversations();
+            }}
+            presets={presets}
+            onSavePreset={handleSavePreset}
+            onCreatePreset={handleCreatePreset}
+            onDeletePreset={handleDeletePreset}
+          />
+        </Suspense>
+      )}
     </div>
+  );
+}
+
+function StatusDot({ online }: { online: boolean | null }) {
+  const Icon = online ? Wifi : WifiOff;
+  return (
+    <span
+      className={`inline-grid size-8 place-items-center rounded-lg border ${
+        online ? "border-emerald-400/25 text-emerald-300" : "border-destructive/25 text-destructive"
+      }`}
+      title={online ? "llama.cpp online" : "llama.cpp offline"}
+      aria-label={online ? "llama.cpp online" : "llama.cpp offline"}
+    >
+      <Icon className="size-4" />
+      {online === null && <Square className="sr-only" />}
+    </span>
   );
 }

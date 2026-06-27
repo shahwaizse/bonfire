@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test.beforeEach(async ({ page }) => {
-  test.skip((page.viewportSize()?.width ?? 1440) < 700, "desktop sidebar workflow");
+  test.skip((page.viewportSize()?.width ?? 1440) < 700, "desktop sidebar behavior");
 });
 
 test("renames, folders, and searches a conversation", async ({ page }) => {
@@ -12,9 +12,9 @@ test("renames, folders, and searches a conversation", async ({ page }) => {
   await page.goto("/");
 
   const input = page.getByPlaceholder("Ask anything...");
-  await input.fill(`Reply with exactly: sidebar workflow works ${suffix}`);
+  await input.fill(`Reply with exactly: sidebar chat works ${suffix}`);
   await page.getByRole("button", { name: "Send message" }).click();
-  await expect(page.getByText(`sidebar workflow works ${suffix}`).first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(`sidebar chat works ${suffix}`).first()).toBeVisible({ timeout: 30_000 });
 
   await expect(page.locator('button[aria-label^="Actions for"]').first()).toBeVisible();
   await page.locator('button[aria-label^="Actions for"]').first().click();

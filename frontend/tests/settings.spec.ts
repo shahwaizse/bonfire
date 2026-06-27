@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-const BACKEND_URL = "http://127.0.0.1:8000";
+const BACKEND_URL = process.env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
 
 async function openSettings(page: import("@playwright/test").Page) {
   if ((page.viewportSize()?.width ?? 1440) < 700) {
@@ -18,23 +18,8 @@ test.beforeEach(async ({ request }) => {
       prompt_mode: "auto",
       guardrails: "",
       search_default: false,
-      memory_enabled: true,
-      memory_auto_extract: true,
     },
   });
-});
-
-test.afterEach(async ({ request }) => {
-  const res = await request.get(`${BACKEND_URL}/memories`, {
-    params: { query: "playwright-memory-" },
-  });
-  if (!res.ok()) return;
-  const memories = (await res.json()) as { id: string; text: string }[];
-  await Promise.all(
-    memories
-      .filter((memory) => memory.text.includes("playwright-memory-"))
-      .map((memory) => request.delete(`${BACKEND_URL}/memories/${memory.id}`))
-  );
 });
 
 test("opens settings and switches between tabs", async ({ page }) => {
@@ -50,6 +35,7 @@ test("opens settings and switches between tabs", async ({ page }) => {
 
   await panel.getByRole("tab", { name: /status/i }).click();
   await expect(panel.getByText("llama.cpp", { exact: true })).toBeVisible();
+  await expect(panel.getByText("Backend", { exact: true })).toBeVisible();
 });
 
 test("lists the three built-in presets and can expand one", async ({ page }) => {
@@ -89,28 +75,6 @@ test("switching to custom mode reveals a prompt textarea", async ({ page }) => {
   await panel.getByRole("button", { name: "Custom", exact: true }).click();
 
   await expect(panel.getByPlaceholder("Add behavior instructions...")).toBeVisible();
-});
-
-test("memory tab can add, search, graph, and delete a memory", async ({ page }) => {
-  const unique = `playwright-memory-${Date.now()} prefers compact TypeScript examples`;
-  await page.goto("/");
-  await openSettings(page);
-  const panel = page.getByTestId("settings-panel");
-
-  await panel.getByRole("tab", { name: /memory/i }).click();
-  await expect(panel.getByText("Use memory", { exact: true })).toBeVisible();
-  await expect(panel.getByText("Knowledge graph", { exact: true })).toBeVisible();
-
-  await panel.getByPlaceholder("Add a memory manually...").fill(unique);
-  await panel.getByRole("button", { name: "Add", exact: true }).click();
-  await expect(panel.getByText(unique)).toBeVisible({ timeout: 10_000 });
-
-  await panel.getByPlaceholder("Name, preference, project, tool...").fill("compact TypeScript");
-  await expect(panel.getByText(unique)).toBeVisible();
-
-  const card = panel.locator("article").filter({ hasText: unique });
-  await card.getByRole("button", { name: "Delete memory" }).click();
-  await expect(panel.getByText(unique)).toHaveCount(0);
 });
 
 test("closing settings returns focus to the chat", async ({ page }) => {

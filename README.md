@@ -1,133 +1,82 @@
 # Bonfire
 
-Bonfire is my private local AI assistant running on my Windows PC!
+Bonfire is a private local chat app for one Windows machine. It is intentionally small now: a polished React chat UI, a Node/Express API, one local llama.cpp text model, optional SearXNG web grounding, SQLite history, prompt presets, and a Tailscale Funnel switch when remote access is needed.
 
-It runs a chat UI, a local llama.cpp model server, SearXNG web search, Playwright page reading, SQLite history, prompt presets, local memory, and an optional Tailscale Funnel switch for using it away from my desk.
+The goal is simple: make the local model feel fast, steady, and pleasant to talk to.
 
-It's a small and fast local assistant, with lots of systems built around it that make it smarter.
+![Bonfire desktop chat](docs/bonfire-new-chat-desktop.png)
 
-![Bonfire new chat on desktop](docs/bonfire-new-chat-desktop.png)
+## What Runs
 
-## The Shape Of It
-
-Bonfire is four local services and one local database:
-
-| Piece | Tech | Port |
-|---|---|---|
-| Model server | llama.cpp with Vulkan GPU offload | `127.0.0.1:8080` |
+| Piece | Tech | Default address |
+| --- | --- | --- |
+| Chat model | llama.cpp OpenAI-compatible server | `127.0.0.1:8080` |
 | Search | SearXNG in Docker | `127.0.0.1:8888` |
-| API | FastAPI | `127.0.0.1:8000` |
-| UI | Vite + React | `127.0.0.1:3000` |
-| Storage | SQLite + ChromaDB files | `backend/data/` |
+| API | Node.js + Express | `127.0.0.1:8000` |
+| UI | Vite + React + shadcn | `127.0.0.1:3000` |
+| Storage | SQLite | `backend/data/app.db` |
 
-The frontend talks to the local backend when opened at `127.0.0.1` or `localhost`. When opened through the Tailscale hostname, it targets the public Funnel backend URL on port `8443`.
+The app is text-only. Chats, settings, prompt presets, and conversation history stay on disk in `backend/data/`.
 
-## Hardware And Model
+## Model
 
-This setup was built around:
+This setup is built around Dolphin 3.0 Llama 3.1 8B GGUF, Q4_K_M, served by the local llama.cpp build in `vendor/llama.cpp/`.
 
-- GPU: AMD RX 6600 XT, 8 GB VRAM
-- Backend model: Dolphin 3.0 Llama 3.1 8B GGUF, Q4_K_M
-- Inference runtime: llama.cpp built with `-DGGML_VULKAN=ON`
-- Default context: `8192`
-- Default GPU layers: `999`
-- Observed generation: roughly 50 tokens/sec with full GPU offload on this machine
+The model file is not committed. Put the GGUF file in `models/` and update the model path in:
 
-The model file is intentionally not committed. Put GGUF files in `models/` and point `scripts/start-llama.ps1` and `scripts/start-all-and-wait.ps1` at the file you want.
+```powershell
+scripts\start-llama.ps1
+scripts\start-all-and-wait.ps1
+```
+
+Useful runtime knobs:
+
+```powershell
+$env:LLAMA_CTX_SIZE = "8192"
+$env:LLAMA_GPU_LAYERS = "999"
+```
 
 ## Web Search
 
-The search path is local and provider-flexible because SearXNG sits in front of the engines.
+Search is optional per message. When enabled, Bonfire asks local SearXNG for result candidates, deduplicates and reranks them, reads a few top pages, and gives the model compact source context. Source links are shown under the assistant reply.
 
-Bonfire does more than forward a raw query:
-
-- strips chatty search phrasing before querying
-- creates a small set of query variants
-- requests web and image categories separately when visuals are useful
-- canonicalizes URLs and removes tracking params
-- dedupes repeated hits
-- reranks locally using query overlap, title/domain matches, upstream score, and engine agreement
-- reads top web pages with Playwright before prompting the model
-- keeps image results as visual references instead of treating filenames as facts
-
-Useful `.env` knobs:
+Useful backend settings live in `backend/.env`:
 
 ```env
+LLAMA_BASE_URL=http://127.0.0.1:8080
+SEARXNG_BASE_URL=http://127.0.0.1:8888
+DATABASE_PATH=./data/app.db
+HOST=127.0.0.1
+PORT=8000
+CORS_ORIGINS=http://127.0.0.1:3000,http://localhost:3000,https://riebeck.tail4fc8a6.ts.net
 MAX_SEARCH_RESULTS=5
 MAX_PAGES_TO_READ=2
 SEARCH_QUERY_VARIANTS=3
-SEARCH_IMAGE_RESULTS=6
-SEARCH_SAFESEARCH_DEFAULT=0
-SEARCH_LANGUAGE=auto
 SEARCH_TIMEOUT_SECONDS=15
 ```
 
-## Prompting And Memory
+## Prompt Presets
 
-Bonfire always builds prompts in layers:
+Bonfire has editable prompt presets for General, Coding, and NSFW modes. The composer can use Auto mode, which picks a preset from the message, or you can pin a preset manually.
+
+Prompts are assembled from:
 
 1. Core Bonfire behavior
 2. Runtime context
-3. Active preset or custom behavior layer
-4. User-editable guardrails
-5. Relevant memory
-6. Web/page context when search is enabled
-7. Recent conversation history
-
-The built-in presets are:
-
-- General: default assistant behavior
-- Coding: terse, pragmatic engineering answers
-- NSFW: adult creative and frank discussion mode
-
-Memory is backed by SQLite plus ChromaDB. The UI exposes memory creation, search, deletion, and a small knowledge graph under Settings -> Memory.
-
-## Tailscale Funnel
-
-Funnel is optional and saved in Bonfire settings.
-
-When enabled in Settings -> Status:
-
-- `https://riebeck.tail4fc8a6.ts.net` proxies to the frontend on `127.0.0.1:3000`
-- `https://riebeck.tail4fc8a6.ts.net:8443` proxies to the backend on `127.0.0.1:8000`
-
-This exposes the app to the public internet with no app-level password gate. Leave Funnel off when you only want local access.
-
-The launcher reapplies the saved setting on startup, so if Funnel is off in the UI, it stays off next time.
-
-Manual checks:
-
-```powershell
-tailscale funnel status
-.\scripts\apply-funnel-setting.ps1
-.\scripts\set-funnel.ps1 -Enabled true
-.\scripts\set-funnel.ps1 -Enabled false
-```
+3. Active preset or custom system prompt
+4. User guardrails
+5. Web/page context when search is enabled
+6. Recent conversation history
 
 ## Run
 
-The easiest path is the desktop shortcut:
-
-```bat
-C:\Users\mshah\OneDrive\Desktop\Bonfire.bat
-```
-
-That runs:
+The normal launcher starts the whole stack:
 
 ```powershell
 .\scripts\start-all-and-wait.ps1
 ```
 
-It will:
-
-1. refresh PATH from the registry
-2. start Docker Desktop if needed
-3. start SearXNG with Docker Compose
-4. start llama.cpp
-5. start the FastAPI backend
-6. start the Vite frontend
-7. apply the saved Funnel setting
-8. print local and Funnel status
+It starts Docker Desktop if needed, starts SearXNG, starts llama.cpp, starts the Express API, starts Vite, reapplies the saved Funnel setting, then prints local URLs.
 
 Open:
 
@@ -155,47 +104,51 @@ From PowerShell:
 .\scripts\stop-all.ps1
 ```
 
-The shutdown path turns off Funnel routes, stops the backend, then the frontend, then llama.cpp, then SearXNG.
+The shutdown path force-stops the local model server, API, and frontend first so RAM and VRAM are returned quickly, then cleans up SearXNG and Funnel routes.
 
-## Setup Notes
+## Tailscale Funnel
 
-Prerequisites used by this setup:
+Funnel is optional and stored in Bonfire settings. When enabled:
+
+```text
+https://riebeck.tail4fc8a6.ts.net       -> frontend on 127.0.0.1:3000
+https://riebeck.tail4fc8a6.ts.net:8443  -> backend on 127.0.0.1:8000
+```
+
+There is no app-level auth gate. Keep Funnel off unless you explicitly need public remote access.
+
+Manual checks:
+
+```powershell
+tailscale funnel status
+.\scripts\apply-funnel-setting.ps1
+.\scripts\set-funnel.ps1 -Enabled true
+.\scripts\set-funnel.ps1 -Enabled false
+```
+
+## Setup
+
+Prerequisites:
 
 - Git
-- Python 3.12
 - Node.js LTS
-- Docker Desktop with WSL2 backend
+- Docker Desktop with WSL2
 - Visual Studio Build Tools for C++
 - CMake + Ninja
 - Vulkan SDK
-- Tailscale, only if Funnel is desired
+- Tailscale, only for Funnel
 
-The backend uses a local virtual environment in `backend/.venv/`. The frontend uses npm in `frontend/`.
-
-Backend environment example:
-
-```env
-LLAMA_BASE_URL=http://127.0.0.1:8080
-SEARXNG_BASE_URL=http://127.0.0.1:8888
-DATABASE_PATH=./data/app.db
-HOST=127.0.0.1
-PORT=8000
-CORS_ORIGINS=http://127.0.0.1:3000,http://localhost:3000,https://riebeck.tail4fc8a6.ts.net
-```
-
-## Replacing The Model
-
-1. Download a GGUF model into `models/`.
-2. Update `$modelPath` in `scripts/start-llama.ps1`.
-3. Update `$modelPath` in `scripts/start-all-and-wait.ps1`.
-4. Restart Bonfire.
-
-If the model does not fit in VRAM, lower one of these before starting:
+Install dependencies:
 
 ```powershell
-$env:LLAMA_CTX_SIZE = "4096"
-$env:LLAMA_GPU_LAYERS = "60"
+cd backend
+npm install
+
+cd ..\frontend
+npm install
 ```
+
+The launch scripts create `backend/.env` from `backend/.env.example` when it does not exist.
 
 ## Testing
 
@@ -203,18 +156,24 @@ Backend:
 
 ```powershell
 cd backend
-.\.venv\Scripts\python.exe -m unittest discover tests
+npm test
 ```
 
-Frontend:
+Frontend build:
 
 ```powershell
 cd frontend
 npm run build
+```
+
+End-to-end:
+
+```powershell
+cd frontend
 npx playwright test
 ```
 
-The Playwright tests run against the real local stack. Start Bonfire first.
+The Playwright suite expects the backend and model server to be available on their default ports.
 
 ## Useful Checks
 
@@ -228,24 +187,15 @@ tailscale funnel status
 
 If SearXNG returns HTML instead of JSON, check `infra/searxng/settings.yml` and make sure `json` is listed under `search.formats`.
 
-## Known Sharp Edges
-
-- Single-user by design.
-- Funnel is public internet exposure when enabled.
-- Search quality still depends on upstream SearXNG engines and rate limits.
-- Page reading can fail on login walls, CAPTCHAs, and heavy bot protection.
-- The model file, local database, `.env`, logs, and generated builds are intentionally ignored by git.
-- Conversation history and settings are stored unencrypted in `backend/data/`.
-
 ## Repo Layout
 
 ```text
 bonfire/
-├── backend/        FastAPI app, prompt assembly, search, memory, settings
-├── frontend/       Vite + React chat UI and Playwright tests
-├── infra/          Docker Compose and SearXNG settings
-├── models/         Local GGUF files, ignored by git
-├── scripts/        Windows startup, shutdown, Docker, Funnel helpers
-├── docs/           README screenshots
-└── vendor/         Local llama.cpp checkout/build, ignored by git
+├── backend/   Express API, prompt assembly, search, presets, settings
+├── frontend/  Vite + React chat UI and Playwright tests
+├── infra/     Docker Compose and SearXNG settings
+├── models/    Local GGUF files, ignored by git
+├── scripts/   Windows startup, shutdown, Docker, and Funnel helpers
+├── docs/      README screenshots
+└── vendor/    Local llama.cpp checkout/build, ignored by git
 ```

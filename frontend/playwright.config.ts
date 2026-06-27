@@ -17,6 +17,10 @@ export default defineConfig({
     url: "http://127.0.0.1:3000",
     reuseExistingServer: true,
     timeout: 30_000,
+    env: {
+      ...process.env,
+      VITE_BACKEND_URL: "http://127.0.0.1:8000",
+    },
   },
   projects: [
     {

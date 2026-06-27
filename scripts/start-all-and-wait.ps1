@@ -1,5 +1,5 @@
 <#
-Starts SearXNG, llama.cpp, the FastAPI backend, and the Vite frontend,
+Starts SearXNG, llama.cpp, the Express backend, and the Vite frontend,
 all hidden/in the background, then waits for all of them to report healthy,
 prints a single status line, and blocks until Enter is pressed. Closing this
 window after that does NOT stop the app -- everything was launched as
@@ -28,6 +28,15 @@ function Wait-Healthy($url, $label, $timeoutSec) {
     return $false
 }
 
+function Test-Healthy($url) {
+    try {
+        Invoke-WebRequest -Uri $url -TimeoutSec 2 -UseBasicParsing | Out-Null
+        return $true
+    } catch {
+        return $false
+    }
+}
+
 Write-Host "Starting Bonfire..."
 Write-Host ""
 
@@ -42,7 +51,8 @@ Pop-Location
 # 2. llama.cpp server
 $llamaExe = Join-Path $root "vendor\llama.cpp\build\bin\llama-server.exe"
 $modelPath = Join-Path $root "models\Dolphin3.0-Llama3.1-8B-Q4_K_M.gguf"
-if (-not (Get-Process -Name "llama-server" -ErrorAction SilentlyContinue)) {
+$llamaHealthUrl = "http://127.0.0.1:8080/health"
+if (-not (Test-Healthy $llamaHealthUrl)) {
     Write-Host "Starting llama.cpp server..."
     $ctxSize = if ($env:LLAMA_CTX_SIZE) { $env:LLAMA_CTX_SIZE } else { "8192" }
     $gpuLayers = if ($env:LLAMA_GPU_LAYERS) { $env:LLAMA_GPU_LAYERS } else { "999" }
@@ -56,24 +66,31 @@ if (-not (Get-Process -Name "llama-server" -ErrorAction SilentlyContinue)) {
       -RedirectStandardOutput (Join-Path $root "vendor\llama_server_stdout.txt") `
       -RedirectStandardError (Join-Path $root "vendor\llama_server_log.txt")
 } else {
-    Write-Host "llama.cpp server already running."
+    Write-Host "llama.cpp server already running on 8080."
 }
 
-# 3. FastAPI backend
+# 3. Express backend
 $backendDir = Join-Path $root "backend"
-$venvPython = Join-Path $backendDir ".venv\Scripts\python.exe"
-$backendRunning = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" |
-    Where-Object { $_.CommandLine -like "*uvicorn*app.main:app*" }
-if (-not $backendRunning) {
+$backendHealthUrl = "http://127.0.0.1:8000/health"
+if (-not (Test-Healthy $backendHealthUrl)) {
     Write-Host "Starting backend..."
-    Start-Process -FilePath $venvPython `
-      -ArgumentList @("-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000") `
+    if (-not (Test-Path (Join-Path $backendDir "node_modules"))) {
+        Write-Host "Installing backend dependencies..."
+        Push-Location $backendDir
+        npm install
+        Pop-Location
+    }
+    if (-not (Test-Path (Join-Path $backendDir ".env"))) {
+        Copy-Item (Join-Path $backendDir ".env.example") (Join-Path $backendDir ".env")
+    }
+    Start-Process -FilePath "npm.cmd" `
+      -ArgumentList @("run", "start") `
       -WorkingDirectory $backendDir `
       -WindowStyle Hidden `
       -RedirectStandardOutput (Join-Path $backendDir "backend_stdout.log") `
       -RedirectStandardError (Join-Path $backendDir "backend_stderr.log")
 } else {
-    Write-Host "Backend already running."
+    Write-Host "Backend already running on 8000."
 }
 
 # 4. Vite frontend
@@ -102,8 +119,8 @@ if (-not $frontendAlreadyUp) {
 }
 
 Write-Host ""
-$llamaOk = Wait-Healthy "http://127.0.0.1:8080/health" "llama.cpp" 120
-$backendOk = Wait-Healthy "http://127.0.0.1:8000/health" "backend" 60
+$llamaOk = Wait-Healthy $llamaHealthUrl "llama.cpp" 120
+$backendOk = Wait-Healthy $backendHealthUrl "backend" 60
 $frontendOk = Wait-Healthy "http://127.0.0.1:3000" "frontend" 60
 $funnelOk = $false
 $funnelEnabled = $false

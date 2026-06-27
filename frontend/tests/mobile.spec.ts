@@ -8,20 +8,14 @@ test.beforeEach(async ({ page }, testInfo) => {
 test("sidebar is hidden behind a hamburger and opens as a drawer", async ({ page }) => {
   await page.goto("/");
 
-  // Off-canvas: the New chat button exists in the DOM but is not in view.
-  const newChatButton = page.getByRole("button", { name: "New chat" });
-  await expect(newChatButton).toBeAttached();
-  const hiddenBox = await newChatButton.boundingBox();
-  expect(hiddenBox?.x).toBeLessThan(0);
+  await expect(page.getByRole("button", { name: "New chat" })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Open conversations" }).click();
-  // The drawer slides in over a 200ms CSS transition -- wait for it to
-  // actually land in the viewport rather than reading boundingBox mid-animation.
+  const newChatButton = page.getByRole("button", { name: "New chat" });
   await expect(newChatButton).toBeInViewport();
 
-  // Tapping the backdrop closes it again.
-  await page.mouse.click(page.viewportSize()!.width - 5, 200);
-  await expect(newChatButton).not.toBeInViewport();
+  await page.getByRole("button", { name: "Close sidebar" }).click();
+  await expect(page.getByRole("button", { name: "New chat" })).toHaveCount(0);
 });
 
 test("settings opens from the sidebar on mobile", async ({ page }) => {

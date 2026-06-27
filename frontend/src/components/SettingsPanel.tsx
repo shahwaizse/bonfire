@@ -1,8 +1,29 @@
-import { useEffect, useRef, useState } from "react";
-import { BACKEND_URL, fetchFunnelStatus } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { BadgeCheck, Flame, Globe2, Plus, Save, Server, Square, Trash2, X } from "lucide-react";
+import { BACKEND_URL, clearAllChats, fetchFunnelStatus } from "@/lib/api";
 import type { FunnelStatus, Preset, PromptMode, Settings } from "@/lib/types";
-import { Icon } from "./icons";
-import MemoryTab from "./MemoryTab";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 
 interface SettingsPanelProps {
   open: boolean;
@@ -12,13 +33,12 @@ interface SettingsPanelProps {
   onUpdateSettings: (patch: Partial<Settings>) => void;
   onSetFunnelEnabled: (enabled: boolean) => Promise<void>;
   onShutdown: () => Promise<void>;
+  onClearAllChats: () => void;
   presets: Preset[];
   onSavePreset: (id: string, patch: Partial<Preset>) => void;
   onCreatePreset: (input: { name: string; description: string; system_prompt: string }) => void;
   onDeletePreset: (id: string) => void;
 }
-
-type Tab = "prompt" | "memory" | "guardrails" | "status";
 
 export default function SettingsPanel({
   open,
@@ -28,286 +48,66 @@ export default function SettingsPanel({
   onUpdateSettings,
   onSetFunnelEnabled,
   onShutdown,
+  onClearAllChats,
   presets,
   onSavePreset,
   onCreatePreset,
   onDeletePreset,
 }: SettingsPanelProps) {
-  const [tab, setTab] = useState<Tab>("prompt");
-  const dialogRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    dialogRef.current?.focus();
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/66 p-3 sm:p-6"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <div
-        ref={dialogRef}
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="settings-title"
+    <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
+      <DialogContent
         data-testid="settings-panel"
-        className="animate-modal-in flex h-[min(780px,calc(100vh-32px))] w-full max-w-[1080px] flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-[0_28px_100px_rgba(0,0,0,0.58)] outline-none"
+        className="flex h-[min(760px,calc(100vh-28px))] max-w-[1040px] grid-rows-none flex-col gap-0 overflow-hidden p-0 sm:max-w-[1040px]"
       >
-        <div className="flex flex-none items-center justify-between border-b border-line px-4 py-3">
-          <div>
-            <h2 id="settings-title" className="text-sm font-semibold text-ink">
-              Settings
-            </h2>
-            <p className="text-xs text-ink-muted">Prompt routing, memory, guardrails, and local service status.</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="grid h-9 w-9 place-items-center rounded-md text-ink-dim transition hover:bg-surface-2 hover:text-ink"
-            aria-label="Close settings"
-            title="Close settings"
-          >
-            <Icon name="x" className="h-4 w-4" />
-          </button>
-        </div>
+        <DialogHeader className="border-b px-5 py-4">
+          <DialogTitle className="flex items-center gap-2">
+            <Flame className="size-4 text-primary" />
+            Settings
+          </DialogTitle>
+          <DialogDescription>Prompt routing, guardrails, and local service status.</DialogDescription>
+        </DialogHeader>
 
-        <div className="flex flex-none gap-1 border-b border-line px-3 pt-2" role="tablist" aria-label="Settings sections">
-          {(["prompt", "memory", "guardrails", "status"] as Tab[]).map((item) => (
-            <button
-              key={item}
-              type="button"
-              role="tab"
-              aria-selected={tab === item}
-              aria-controls={`${item}-panel`}
-              id={`${item}-tab`}
-              onClick={() => setTab(item)}
-              className={`rounded-t-md px-3 py-2 text-xs font-medium capitalize transition-colors ${
-                tab === item ? "bg-surface-2 text-ink" : "text-ink-muted hover:text-ink-dim"
-              }`}
-            >
-              {item}
-            </button>
-          ))}
-        </div>
+        {settings ? (
+          <Tabs defaultValue="prompt" className="min-h-0 flex-1">
+            <div className="border-b px-4 pt-3">
+              <TabsList>
+                <TabsTrigger value="prompt">Prompt</TabsTrigger>
+                <TabsTrigger value="guardrails">Guardrails</TabsTrigger>
+                <TabsTrigger value="status">Status</TabsTrigger>
+              </TabsList>
+            </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-          {tab === "status" && (
-            <section id="status-panel" role="tabpanel" aria-labelledby="status-tab">
-              <StatusTab
-                llamaOnline={llamaOnline}
-                settings={settings}
-                onSetFunnelEnabled={onSetFunnelEnabled}
-                onShutdown={onShutdown}
-              />
-            </section>
-          )}
-          {tab === "prompt" && settings && (
-            <section id="prompt-panel" role="tabpanel" aria-labelledby="prompt-tab">
-              <PromptTab
-                settings={settings}
-                onUpdateSettings={onUpdateSettings}
-                presets={presets}
-                onSavePreset={onSavePreset}
-                onCreatePreset={onCreatePreset}
-                onDeletePreset={onDeletePreset}
-              />
-            </section>
-          )}
-          {tab === "memory" && settings && (
-            <section id="memory-panel" role="tabpanel" aria-labelledby="memory-tab">
-              <MemoryTab settings={settings} onUpdateSettings={onUpdateSettings} />
-            </section>
-          )}
-          {tab === "guardrails" && settings && (
-            <section id="guardrails-panel" role="tabpanel" aria-labelledby="guardrails-tab">
-              <GuardrailsTab settings={settings} onUpdateSettings={onUpdateSettings} />
-            </section>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StatusTab({
-  llamaOnline,
-  settings,
-  onSetFunnelEnabled,
-  onShutdown,
-}: {
-  llamaOnline: boolean | null;
-  settings: Settings | null;
-  onSetFunnelEnabled: (enabled: boolean) => Promise<void>;
-  onShutdown: () => Promise<void>;
-}) {
-  const [funnelStatus, setFunnelStatus] = useState<FunnelStatus | null>(null);
-  const [funnelBusy, setFunnelBusy] = useState(false);
-  const [shutdownBusy, setShutdownBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  const refreshFunnelStatus = async () => {
-    try {
-      setFunnelStatus(await fetchFunnelStatus());
-    } catch {
-      setFunnelStatus(null);
-    }
-  };
-
-  useEffect(() => {
-    refreshFunnelStatus();
-  }, []);
-
-  const toggleFunnel = async () => {
-    if (!settings || funnelBusy) return;
-    const enabled = !(funnelStatus?.active ?? settings.funnel_enabled);
-    setError("");
-    setFunnelBusy(true);
-    try {
-      await onSetFunnelEnabled(enabled);
-      await refreshFunnelStatus();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update Funnel");
-    } finally {
-      setFunnelBusy(false);
-    }
-  };
-
-  const shutdown = async () => {
-    if (shutdownBusy) return;
-    if (!window.confirm("Shut down Bonfire now? This stops the backend, frontend, model server, SearXNG, and active Funnel routes.")) {
-      return;
-    }
-    setError("");
-    setShutdownBusy(true);
-    try {
-      await onShutdown();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to shut down Bonfire");
-      setShutdownBusy(false);
-    }
-  };
-
-  const funnelSaved = settings?.funnel_enabled ?? false;
-  const funnelActual = funnelStatus?.active;
-  const funnelOn = funnelActual ?? funnelSaved;
-
-  return (
-    <div className="grid gap-3 text-sm sm:grid-cols-2">
-      <div className="rounded-lg border border-line bg-bg-soft p-3">
-        <p className="font-medium text-ink">llama.cpp</p>
-        <p className={`mt-1 text-xs ${llamaOnline ? "text-ok" : "text-danger"}`}>
-          {llamaOnline === null ? "Checking..." : llamaOnline ? "Online" : "Offline"}
-        </p>
-      </div>
-      <div className="rounded-lg border border-line bg-bg-soft p-3">
-        <p className="font-medium text-ink">Backend</p>
-        <p className="mt-1 break-all text-xs text-ink-muted">{BACKEND_URL}</p>
-      </div>
-      <div className="rounded-lg border border-line bg-bg-soft p-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="font-medium text-ink">Tailscale Funnel</p>
-            <p className={`mt-1 text-xs ${funnelSaved ? "text-ok" : "text-ink-muted"}`}>
-              Saved {funnelSaved ? "On" : "Off"}
-              {funnelStatus && ` · Active ${funnelActual ? "On" : "Off"}`}
-            </p>
-            {funnelSaved && (
-              <p className="mt-1 break-all text-xs text-ink-muted">https://riebeck.tail4fc8a6.ts.net</p>
-            )}
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={funnelOn}
-            onClick={toggleFunnel}
-            disabled={!settings || funnelBusy}
-            className={`inline-flex h-8 flex-none items-center gap-2 rounded-full border px-3 text-xs transition ${
-              funnelOn
-                ? "border-ok/60 bg-ok/15 text-ink"
-                : "border-line bg-surface text-ink-dim hover:border-line-strong hover:text-ink"
-            } disabled:opacity-50`}
-          >
-            <Icon name="globe" className="h-3.5 w-3.5" />
-            {funnelBusy ? "Saving" : funnelOn ? "On" : "Off"}
-          </button>
-        </div>
-      </div>
-      <div className="rounded-lg border border-danger/40 bg-danger/8 p-3">
-        <p className="font-medium text-ink">Shutdown</p>
-        <p className="mt-1 text-xs text-ink-muted">Stops Bonfire services and frees the model server GPU load.</p>
-        <button
-          type="button"
-          onClick={shutdown}
-          disabled={shutdownBusy}
-          className="mt-3 inline-flex h-9 items-center gap-2 rounded-md border border-danger/45 bg-danger/14 px-3 text-xs font-medium text-danger transition hover:bg-danger/20 disabled:opacity-50"
-        >
-          <Icon name="stop" className="h-3.5 w-3.5" />
-          {shutdownBusy ? "Shutting down" : "Shut down Bonfire"}
-        </button>
-      </div>
-      {error && (
-        <div className="rounded-lg border border-danger/45 bg-danger/12 p-3 text-xs text-danger sm:col-span-2">
-          {error}
-        </div>
-      )}
-      <div className="rounded-lg border border-line bg-bg-soft p-3 text-xs leading-relaxed text-ink-muted sm:col-span-2">
-        This app runs on your machine. Core behavior, presets, custom instructions, and guardrails are assembled
-        locally before each llama.cpp request.
-      </div>
-    </div>
-  );
-}
-
-function GuardrailsTab({
-  settings,
-  onUpdateSettings,
-}: {
-  settings: Settings;
-  onUpdateSettings: (patch: Partial<Settings>) => void;
-}) {
-  const [draft, setDraft] = useState(settings.guardrails);
-
-  useEffect(() => {
-    setDraft(settings.guardrails);
-  }, [settings.guardrails]);
-
-  return (
-    <div className="space-y-3">
-      <div className="rounded-lg border border-line bg-bg-soft p-3 text-xs leading-relaxed text-ink-muted">
-        Guardrails are appended after Bonfire's core system prompt and the selected behavior layer. Leave this
-        blank for no app-level guardrails, or add any local rules you want enforced across every mode.
-      </div>
-      <label className="block">
-        <span className="mb-1.5 block text-xs font-medium text-ink-muted">Guardrails</span>
-        <textarea
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          rows={10}
-          className="w-full resize-none rounded-lg border border-line bg-bg-soft px-3 py-2 text-sm text-ink outline-none"
-          placeholder="Example: Never reveal private API keys. Ask before destructive filesystem changes."
-        />
-      </label>
-      <button
-        type="button"
-        onClick={() => onUpdateSettings({ guardrails: draft })}
-        disabled={draft === settings.guardrails}
-        className="inline-flex h-9 items-center gap-2 rounded-md border border-line-strong bg-surface-3 px-3 text-xs font-medium text-ink transition hover:border-accent hover:bg-[#2b3038] disabled:opacity-40"
-      >
-        <Icon name="archive" className="h-3.5 w-3.5" />
-        Save guardrails
-      </button>
-    </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+              <TabsContent value="prompt" className="mt-0">
+                <PromptTab
+                  settings={settings}
+                  onUpdateSettings={onUpdateSettings}
+                  presets={presets}
+                  onSavePreset={onSavePreset}
+                  onCreatePreset={onCreatePreset}
+                  onDeletePreset={onDeletePreset}
+                />
+              </TabsContent>
+              <TabsContent value="guardrails" className="mt-0">
+                <GuardrailsTab settings={settings} onUpdateSettings={onUpdateSettings} />
+              </TabsContent>
+              <TabsContent value="status" className="mt-0">
+                <StatusTab
+                  llamaOnline={llamaOnline}
+                  settings={settings}
+                  onSetFunnelEnabled={onSetFunnelEnabled}
+                  onShutdown={onShutdown}
+                  onClearAllChats={onClearAllChats}
+                />
+              </TabsContent>
+            </div>
+          </Tabs>
+        ) : (
+          <div className="p-5 text-sm text-muted-foreground">Loading settings...</div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -327,7 +127,11 @@ function PromptTab({
   onDeletePreset: (id: string) => void;
 }) {
   const [customDraft, setCustomDraft] = useState(settings.custom_prompt);
+  const [coreDraft, setCoreDraft] = useState(settings.core_system_prompt);
   const [creating, setCreating] = useState(false);
+
+  useEffect(() => setCustomDraft(settings.custom_prompt), [settings.custom_prompt]);
+  useEffect(() => setCoreDraft(settings.core_system_prompt), [settings.core_system_prompt]);
 
   const modes: { id: PromptMode; label: string }[] = [
     { id: "auto", label: "Auto" },
@@ -337,83 +141,134 @@ function PromptTab({
 
   return (
     <div className="space-y-5">
-      <div className="rounded-lg border border-line bg-bg-soft p-3">
-        <p className="mb-2 text-xs font-medium text-ink-muted">Mode</p>
-        <div className="inline-flex rounded-full border border-line bg-surface p-0.5" role="group" aria-label="Prompt mode">
+      <section className="rounded-xl border bg-card/68 p-4">
+        <p className="mb-3 text-xs font-medium text-muted-foreground">Mode</p>
+        <div className="inline-flex rounded-xl border bg-background/55 p-1" role="group" aria-label="Prompt mode">
           {modes.map((mode) => (
-            <button
+            <Button
               key={mode.id}
               type="button"
+              variant={settings.prompt_mode === mode.id ? "secondary" : "ghost"}
+              size="sm"
               aria-pressed={settings.prompt_mode === mode.id}
               onClick={() => onUpdateSettings({ prompt_mode: mode.id })}
-              className={`h-8 rounded-full px-3 text-xs transition-colors ${
-                settings.prompt_mode === mode.id ? "bg-surface-3 text-ink" : "text-ink-dim hover:text-ink"
-              }`}
             >
               {mode.label}
-            </button>
+            </Button>
           ))}
         </div>
-        <p className="mt-2 text-xs text-ink-muted">
-          {settings.prompt_mode === "auto" && "Pick the closest preset for each message."}
-          {settings.prompt_mode === "preset" && "Always use one selected preset."}
-          {settings.prompt_mode === "custom" && "Layer your custom behavior instructions on top of Bonfire's core prompt."}
-        </p>
-      </div>
 
-      {settings.prompt_mode === "preset" && (
-        <label className="block">
-          <span className="mb-1.5 block text-xs font-medium text-ink-muted">Pinned preset</span>
-          <select
-            value={settings.active_preset_id}
-            onChange={(event) => onUpdateSettings({ active_preset_id: event.target.value })}
-            className="h-10 w-full rounded-lg border border-line bg-bg-soft px-3 text-sm text-ink outline-none"
-          >
-            {presets.map((preset) => (
-              <option key={preset.id} value={preset.id}>
-                {preset.name}
-              </option>
-            ))}
-          </select>
+        {settings.prompt_mode === "preset" && (
+          <div className="mt-4">
+            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Pinned preset</label>
+            <Select
+              value={settings.active_preset_id}
+              onValueChange={(active_preset_id) => onUpdateSettings({ active_preset_id })}
+            >
+              <SelectTrigger className="w-full bg-background/60">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {presets.map((preset) => (
+                  <SelectItem key={preset.id} value={preset.id}>
+                    {preset.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {settings.prompt_mode === "custom" && (
+          <div className="mt-4">
+            <label className="mb-1.5 block text-xs font-medium text-muted-foreground" htmlFor="custom-prompt">
+              Custom behavior layer
+            </label>
+            <Textarea
+              id="custom-prompt"
+              value={customDraft}
+              onChange={(event) => setCustomDraft(event.target.value)}
+              rows={6}
+              placeholder="Add behavior instructions..."
+            />
+            <Button
+              type="button"
+              onClick={() => onUpdateSettings({ custom_prompt: customDraft })}
+              disabled={customDraft === settings.custom_prompt}
+              className="mt-2"
+              size="sm"
+            >
+              <Save />
+              Save
+            </Button>
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-xl border bg-card/68 p-4">
+        <label className="mb-1.5 block text-xs font-medium text-muted-foreground" htmlFor="core-system-prompt">
+          Core system prompt
         </label>
-      )}
-
-      {settings.prompt_mode === "custom" && (
-        <div>
-          <label className="mb-1.5 block text-xs font-medium text-ink-muted" htmlFor="custom-prompt">
-            Custom behavior layer
-          </label>
-          <textarea
-            id="custom-prompt"
-            value={customDraft}
-            onChange={(event) => setCustomDraft(event.target.value)}
-            rows={6}
-            className="w-full resize-none rounded-lg border border-line bg-bg-soft px-3 py-2 text-sm text-ink outline-none"
-            placeholder="Add behavior instructions..."
-          />
-          <button
+        <Textarea
+          id="core-system-prompt"
+          value={coreDraft}
+          onChange={(event) => setCoreDraft(event.target.value)}
+          rows={8}
+          className="font-mono text-xs"
+          placeholder="Leave empty to use Bonfire's default core prompt..."
+        />
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <Button
             type="button"
-            onClick={() => onUpdateSettings({ custom_prompt: customDraft })}
-            disabled={customDraft === settings.custom_prompt}
-            className="mt-2 inline-flex h-9 items-center gap-2 rounded-md border border-line-strong bg-surface-3 px-3 text-xs font-medium text-ink transition hover:border-accent hover:bg-[#2b3038] disabled:opacity-40"
+            onClick={() => onUpdateSettings({ core_system_prompt: coreDraft })}
+            disabled={coreDraft === settings.core_system_prompt}
+            size="sm"
           >
-            <Icon name="archive" className="h-3.5 w-3.5" />
+            <Save />
             Save
-          </button>
+          </Button>
+          {settings.core_system_prompt && (
+            <Button
+              type="button"
+              onClick={() => {
+                setCoreDraft("");
+                onUpdateSettings({ core_system_prompt: "" });
+              }}
+              variant="outline"
+              size="sm"
+            >
+              Reset to default
+            </Button>
+          )}
         </div>
-      )}
 
-      <div>
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <p className="text-xs font-medium text-ink-muted">Presets</p>
-          <button
-            type="button"
-            onClick={() => setCreating((value) => !value)}
-            className="inline-flex h-8 items-center gap-2 rounded-md border border-line px-3 text-xs text-ink-dim transition hover:border-line-strong hover:text-ink"
-          >
-            <Icon name={creating ? "x" : "plus"} className="h-3.5 w-3.5" />
+        <Separator className="my-4" />
+
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <label className="text-xs font-medium text-muted-foreground" htmlFor="llm-temperature">
+              Temperature
+            </label>
+            <Badge variant="outline">{settings.llm_temperature.toFixed(2)}</Badge>
+          </div>
+          <Slider
+            id="llm-temperature"
+            min={0}
+            max={2}
+            step={0.05}
+            value={[settings.llm_temperature]}
+            onValueChange={([llm_temperature]) => onUpdateSettings({ llm_temperature })}
+          />
+        </div>
+      </section>
+
+      <section>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <p className="text-xs font-medium text-muted-foreground">Presets</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => setCreating((value) => !value)}>
+            {creating ? <X /> : <Plus />}
             {creating ? "Cancel" : "New preset"}
-          </button>
+          </Button>
         </div>
 
         {creating && (
@@ -430,8 +285,176 @@ function PromptTab({
             <PresetCard key={preset.id} preset={preset} onSave={onSavePreset} onDelete={onDeletePreset} />
           ))}
         </div>
-      </div>
+      </section>
     </div>
+  );
+}
+
+function GuardrailsTab({
+  settings,
+  onUpdateSettings,
+}: {
+  settings: Settings;
+  onUpdateSettings: (patch: Partial<Settings>) => void;
+}) {
+  const [draft, setDraft] = useState(settings.guardrails);
+  useEffect(() => setDraft(settings.guardrails), [settings.guardrails]);
+
+  return (
+    <div className="space-y-3">
+      <label className="block">
+        <span className="mb-1.5 block text-xs font-medium text-muted-foreground">Guardrails</span>
+        <Textarea
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          rows={12}
+          placeholder="Example: Never reveal private API keys. Ask before destructive filesystem changes."
+        />
+      </label>
+      <Button type="button" onClick={() => onUpdateSettings({ guardrails: draft })} disabled={draft === settings.guardrails}>
+        <Save />
+        Save guardrails
+      </Button>
+    </div>
+  );
+}
+
+function StatusTab({
+  llamaOnline,
+  settings,
+  onSetFunnelEnabled,
+  onShutdown,
+  onClearAllChats,
+}: {
+  llamaOnline: boolean | null;
+  settings: Settings;
+  onSetFunnelEnabled: (enabled: boolean) => Promise<void>;
+  onShutdown: () => Promise<void>;
+  onClearAllChats: () => void;
+}) {
+  const [funnelStatus, setFunnelStatus] = useState<FunnelStatus | null>(null);
+  const [funnelBusy, setFunnelBusy] = useState(false);
+  const [shutdownBusy, setShutdownBusy] = useState(false);
+  const [clearBusy, setClearBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const refreshFunnelStatus = async () => {
+    try {
+      setFunnelStatus(await fetchFunnelStatus());
+    } catch {
+      setFunnelStatus(null);
+    }
+  };
+
+  useEffect(() => {
+    refreshFunnelStatus();
+  }, []);
+
+  const toggleFunnel = async () => {
+    if (funnelBusy) return;
+    const enabled = !(funnelStatus?.active ?? settings.funnel_enabled);
+    setError("");
+    setFunnelBusy(true);
+    try {
+      await onSetFunnelEnabled(enabled);
+      await refreshFunnelStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update Funnel");
+    } finally {
+      setFunnelBusy(false);
+    }
+  };
+
+  const clearChats = async () => {
+    if (clearBusy) return;
+    if (!window.confirm("Delete all conversations and messages? This cannot be undone.")) return;
+    setError("");
+    setClearBusy(true);
+    try {
+      await clearAllChats();
+      onClearAllChats();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to clear chats");
+    } finally {
+      setClearBusy(false);
+    }
+  };
+
+  const shutdown = async () => {
+    if (shutdownBusy) return;
+    if (!window.confirm("Shut down Bonfire now? This stops the backend, frontend, model server, SearXNG, and active Funnel routes.")) {
+      return;
+    }
+    setError("");
+    setShutdownBusy(true);
+    try {
+      await onShutdown();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to shut down Bonfire");
+      setShutdownBusy(false);
+    }
+  };
+
+  const funnelOn = funnelStatus?.active ?? settings.funnel_enabled;
+
+  return (
+    <div className="grid gap-3 text-sm sm:grid-cols-2">
+      <StatusTile title="llama.cpp" value={llamaOnline === null ? "Checking..." : llamaOnline ? "Online" : "Offline"} good={Boolean(llamaOnline)} icon={<Server className="size-4" />} />
+      <StatusTile title="Backend" value={BACKEND_URL} good icon={<BadgeCheck className="size-4" />} />
+
+      <section className="rounded-xl border bg-card/68 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-medium">Tailscale Funnel</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Saved {settings.funnel_enabled ? "On" : "Off"}
+              {funnelStatus && ` / Active ${funnelStatus.active ? "On" : "Off"}`}
+            </p>
+          </div>
+          <Switch checked={funnelOn} onCheckedChange={toggleFunnel} disabled={funnelBusy} aria-label="Tailscale Funnel" />
+        </div>
+      </section>
+
+      <section className="rounded-xl border bg-card/68 p-4">
+        <p className="font-medium">Clear all chats</p>
+        <Button type="button" variant="outline" className="mt-3" onClick={clearChats} disabled={clearBusy}>
+          <Trash2 />
+          {clearBusy ? "Clearing" : "Clear all chats"}
+        </Button>
+      </section>
+
+      <section className="rounded-xl border border-destructive/30 bg-destructive/8 p-4 sm:col-span-2">
+        <p className="font-medium">Shutdown</p>
+        <Button type="button" variant="destructive" className="mt-3" onClick={shutdown} disabled={shutdownBusy}>
+          <Square />
+          {shutdownBusy ? "Shutting down" : "Shut down Bonfire"}
+        </Button>
+      </section>
+
+      {error && <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive sm:col-span-2">{error}</div>}
+    </div>
+  );
+}
+
+function StatusTile({
+  title,
+  value,
+  good,
+  icon,
+}: {
+  title: string;
+  value: string;
+  good: boolean;
+  icon: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-xl border bg-card/68 p-4">
+      <div className="flex items-center gap-2">
+        <span className={good ? "text-emerald-300" : "text-destructive"}>{icon}</span>
+        <p className="font-medium">{title}</p>
+      </div>
+      <p className={`mt-1 break-all text-xs ${good ? "text-emerald-300" : "text-destructive"}`}>{value}</p>
+    </section>
   );
 }
 
@@ -446,54 +469,41 @@ function PresetCard({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [prompt, setPrompt] = useState(preset.system_prompt);
-
-  useEffect(() => {
-    setPrompt(preset.system_prompt);
-  }, [preset.system_prompt]);
+  useEffect(() => setPrompt(preset.system_prompt), [preset.system_prompt]);
 
   return (
-    <div className="rounded-lg border border-line bg-bg-soft">
-      <button
-        type="button"
-        onClick={() => setExpanded((value) => !value)}
-        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
-        aria-expanded={expanded}
-      >
+    <article className="rounded-xl border bg-card/68">
+      <button type="button" onClick={() => setExpanded((value) => !value)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left">
         <span className="min-w-0">
-          <span className="block truncate text-sm font-medium text-ink">{preset.name}</span>
-          <span className="block truncate text-xs text-ink-muted">{preset.description}</span>
+          <span className="block truncate text-sm font-medium">{preset.name}</span>
+          <span className="block truncate text-xs text-muted-foreground">{preset.description}</span>
         </span>
-        <Icon name="chevronDown" className={`h-4 w-4 flex-none text-ink-muted transition ${expanded ? "rotate-180" : ""}`} />
+        {preset.is_builtin && <Badge variant="outline">Built in</Badge>}
       </button>
+
       {expanded && (
-        <div className="space-y-2 border-t border-line px-3 py-3">
-          <textarea
+        <div className="space-y-3 border-t px-4 py-4">
+          <Textarea
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
             rows={5}
             aria-label={`${preset.name} system prompt`}
-            className="w-full resize-none rounded-md border border-line bg-surface px-2.5 py-2 text-xs text-ink outline-none"
           />
           <div className="flex items-center justify-between gap-3">
-            <button
-              type="button"
-              onClick={() => onSave(preset.id, { system_prompt: prompt })}
-              disabled={prompt === preset.system_prompt}
-              className="inline-flex h-8 items-center gap-2 rounded-md border border-line-strong bg-surface-3 px-3 text-xs font-medium text-ink transition hover:border-accent hover:bg-[#2b3038] disabled:opacity-40"
-            >
-              <Icon name="archive" className="h-3.5 w-3.5" />
+            <Button type="button" onClick={() => onSave(preset.id, { system_prompt: prompt })} disabled={prompt === preset.system_prompt} size="sm">
+              <Save />
               Save
-            </button>
+            </Button>
             {!preset.is_builtin && (
-              <button type="button" onClick={() => onDelete(preset.id)} className="inline-flex items-center gap-1.5 text-xs text-danger hover:underline">
-                <Icon name="trash" className="h-3.5 w-3.5" />
+              <Button type="button" onClick={() => onDelete(preset.id)} variant="destructive" size="sm">
+                <Trash2 />
                 Delete preset
-              </button>
+              </Button>
             )}
           </div>
         </div>
       )}
-    </div>
+    </article>
   );
 }
 
@@ -507,38 +517,14 @@ function NewPresetForm({
   const [prompt, setPrompt] = useState("");
 
   return (
-    <div className="mb-3 space-y-2 rounded-lg border border-line bg-bg-soft p-3">
-      <input
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-        placeholder="Name"
-        aria-label="Preset name"
-        className="h-9 w-full rounded-md border border-line bg-surface px-2.5 text-xs text-ink outline-none placeholder:text-ink-muted"
-      />
-      <input
-        value={description}
-        onChange={(event) => setDescription(event.target.value)}
-        placeholder="Short description"
-        aria-label="Preset description"
-        className="h-9 w-full rounded-md border border-line bg-surface px-2.5 text-xs text-ink outline-none placeholder:text-ink-muted"
-      />
-      <textarea
-        value={prompt}
-        onChange={(event) => setPrompt(event.target.value)}
-        rows={4}
-        placeholder="System prompt..."
-        aria-label="Preset system prompt"
-        className="w-full resize-none rounded-md border border-line bg-surface px-2.5 py-2 text-xs text-ink outline-none placeholder:text-ink-muted"
-      />
-      <button
-        type="button"
-        onClick={() => name.trim() && prompt.trim() && onCreate({ name, description, system_prompt: prompt })}
-        disabled={!name.trim() || !prompt.trim()}
-        className="inline-flex h-8 items-center gap-2 rounded-md border border-line-strong bg-surface-3 px-3 text-xs font-medium text-ink transition hover:border-accent hover:bg-[#2b3038] disabled:opacity-40"
-      >
-        <Icon name="plus" className="h-3.5 w-3.5" />
+    <div className="mb-3 space-y-2 rounded-xl border bg-card/68 p-4">
+      <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Name" aria-label="Preset name" />
+      <Input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Short description" aria-label="Preset description" />
+      <Textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={4} placeholder="System prompt..." aria-label="Preset system prompt" />
+      <Button type="button" onClick={() => name.trim() && prompt.trim() && onCreate({ name, description, system_prompt: prompt })} disabled={!name.trim() || !prompt.trim()}>
+        <Plus />
         Create
-      </button>
+      </Button>
     </div>
   );
 }
