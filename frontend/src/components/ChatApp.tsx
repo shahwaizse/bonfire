@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { Menu, Search, Sparkles, Square, Wifi, WifiOff } from "lucide-react";
+import { ArrowDown, Menu, Sparkles } from "lucide-react";
 import Sidebar from "./Sidebar";
 import MessageBubble from "./MessageBubble";
 import ComposerBar from "./ComposerBar";
@@ -398,7 +398,7 @@ export default function ChatApp() {
   };
 
   return (
-    <div className="relative flex h-screen overflow-hidden bg-background text-foreground">
+    <div className="relative flex h-dvh min-h-dvh overflow-hidden bg-background text-foreground">
       <Sidebar
         conversations={conversations}
         activeId={activeId}
@@ -429,15 +429,12 @@ export default function ChatApp() {
             <Sparkles className="size-4 text-primary" />
             <span className="truncate text-sm font-medium">Bonfire</span>
           </div>
-          <StatusDot online={llamaOnline} />
+          <span className="size-10" aria-hidden="true" />
         </header>
 
         {messages.length === 0 ? (
-          <main className="flex min-h-0 flex-1 flex-col items-center justify-center px-3 py-8">
-            <div className="mb-6 flex w-full max-w-[780px] flex-col items-center gap-3 text-center">
-              <div className="grid size-10 place-items-center rounded-xl border bg-card text-primary shadow-sm">
-                <Sparkles className="size-5" />
-              </div>
+          <main className="flex min-h-0 flex-1 flex-col items-center justify-center px-3 py-8 pb-[calc(env(safe-area-inset-bottom)+2rem)] sm:pb-8">
+            <div className="mb-6 flex w-full max-w-[780px] flex-col items-center text-center">
               <h1 className="text-2xl font-semibold sm:text-3xl">Sic parvis magna</h1>
             </div>
             <ComposerBar
@@ -475,13 +472,13 @@ export default function ChatApp() {
                   </MessageScrollerContent>
                 </MessageScrollerViewport>
                 <MessageScrollerButton size="sm" className="gap-1.5 shadow-lg">
-                  <Search className="size-4" />
+                  <ArrowDown className="size-4" />
                   <span className="ml-1 text-xs">Jump to latest</span>
                 </MessageScrollerButton>
               </MessageScroller>
             </MessageScrollerProvider>
             </main>
-            <footer className="flex-none border-t bg-background/78 px-0 py-3 backdrop-blur-xl">
+            <footer className="flex-none border-t bg-background/78 px-0 py-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] backdrop-blur-xl sm:pb-3">
               <ComposerBar
                 value={input}
                 onChange={setInput}
@@ -522,21 +519,5 @@ export default function ChatApp() {
         </Suspense>
       )}
     </div>
-  );
-}
-
-function StatusDot({ online }: { online: boolean | null }) {
-  const Icon = online ? Wifi : WifiOff;
-  return (
-    <span
-      className={`inline-grid size-8 place-items-center rounded-lg border ${
-        online ? "border-emerald-400/25 text-emerald-300" : "border-destructive/25 text-destructive"
-      }`}
-      title={online ? "llama.cpp online" : "llama.cpp offline"}
-      aria-label={online ? "llama.cpp online" : "llama.cpp offline"}
-    >
-      <Icon className="size-4" />
-      {online === null && <Square className="sr-only" />}
-    </span>
   );
 }

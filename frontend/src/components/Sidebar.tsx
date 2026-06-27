@@ -54,7 +54,7 @@ export default function Sidebar(props: SidebarProps) {
   return (
     <>
       <aside
-        className={`hidden h-screen flex-none border-r bg-sidebar/88 backdrop-blur-xl transition-[width] duration-200 sm:flex ${
+        className={`hidden h-dvh min-h-dvh flex-none border-r bg-sidebar/88 backdrop-blur-xl transition-[width] duration-200 sm:flex ${
           props.collapsed ? "w-[72px]" : "w-[292px]"
         }`}
         aria-label="Chat sidebar"
@@ -356,16 +356,20 @@ function SidebarContent({
       <Separator />
       <div className="flex flex-none flex-col gap-2 p-3">
         <div
-          className={`flex h-9 items-center rounded-lg border bg-background/55 px-2.5 text-xs text-muted-foreground ${
-            collapsed && !mobile ? "justify-center px-0" : "justify-between"
-          }`}
+          className={`flex h-9 items-center rounded-lg border px-2.5 text-xs transition-colors ${
+            llamaOnline
+              ? "border-emerald-400/30 bg-emerald-400/8 text-emerald-100 shadow-[0_0_22px_rgba(52,211,153,0.12)]"
+              : "border-destructive/25 bg-destructive/8 text-destructive"
+          } ${collapsed && !mobile ? "justify-center px-0" : "justify-between"}`}
           role="status"
           aria-label={llamaOnline ? "llama.cpp online" : "llama.cpp offline"}
         >
           <span className={collapsed && !mobile ? "sr-only" : "truncate"}>{modelName}</span>
           <Badge
             variant={llamaOnline ? "secondary" : "destructive"}
-            className="size-2 rounded-full p-0"
+            className={`size-2 rounded-full p-0 ${
+              llamaOnline ? "border-emerald-300 bg-emerald-300 shadow-[0_0_12px_rgba(110,231,183,0.9)]" : ""
+            }`}
             aria-hidden="true"
           />
         </div>

@@ -16,7 +16,12 @@ test("loads to the empty state with a focused composer", async ({ page }) => {
 
 test("llama.cpp status indicator goes green", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator('[aria-label="llama.cpp online"]:visible')).toBeVisible({ timeout: 15_000 });
+  const isMobile = (page.viewportSize()?.width ?? 1440) < 700;
+  if (isMobile) {
+    await expect(page.locator('header [aria-label="llama.cpp online"]')).toHaveCount(0);
+    await page.getByRole("button", { name: "Open conversations" }).click();
+  }
+  await expect(page.locator('[role="status"][aria-label="llama.cpp online"]:visible')).toBeVisible({ timeout: 15_000 });
 });
 
 test("sends a message and streams a real response", async ({ page }) => {

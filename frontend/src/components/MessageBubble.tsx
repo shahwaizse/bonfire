@@ -1,10 +1,9 @@
 import { lazy, Suspense } from "react";
-import { AlertCircle, CheckCircle2, FileText, Globe2, Loader2, Route, Sparkles } from "lucide-react";
-import type { ActivityEvent, ActivityKind, DisplayMessage, SearchResultItem } from "@/lib/types";
+import type { ActivityEvent, DisplayMessage, SearchResultItem } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
-import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker";
 import { Message, MessageContent, MessageFooter } from "@/components/ui/message";
+import { BACKEND_URL } from "@/lib/api";
 
 interface MessageBubbleProps {
   message: DisplayMessage;
@@ -12,20 +11,12 @@ interface MessageBubbleProps {
   activity?: ActivityEvent[];
 }
 
-const activityIcon: Record<ActivityKind, typeof Sparkles> = {
-  route: Route,
-  search: Globe2,
-  read: FileText,
-  generate: Sparkles,
-  result: CheckCircle2,
-  error: AlertCircle,
-};
-
 const MarkdownContent = lazy(() => import("./MarkdownContent"));
 
 export default function MessageBubble({ message, active = false, activity = [] }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const hasContent = message.content.trim().length > 0;
+  const hasSources = !isUser && (message.sources?.length ?? 0) > 0;
 
   return (
     <Message align={isUser ? "end" : "start"} data-message-id={message.id} data-message-role={message.role}>
@@ -38,15 +29,19 @@ export default function MessageBubble({ message, active = false, activity = [] }
           </MessageFooter>
         )}
 
-        {active && activity.length > 0 && <ActivityPanel activity={activity} />}
+        {active && !hasContent && activity.length > 0 && <ActivityPanel activity={activity} />}
 
         {hasContent && (
-          <Bubble align={isUser ? "end" : "start"} variant={isUser ? "default" : "outline"} className={isUser ? "max-w-[78%]" : "max-w-full"}>
+          <Bubble
+            align={isUser ? "end" : "start"}
+            variant={isUser ? "default" : "outline"}
+            className={isUser ? "max-w-[78%]" : hasSources ? "w-full max-w-full" : "max-w-full"}
+          >
             <BubbleContent
               className={
                 isUser
                   ? "border-primary/40 !bg-primary !text-primary-foreground shadow-lg shadow-primary/10"
-                  : "border-border/70 bg-card/80"
+                  : `border-border/70 bg-card/80 ${hasSources ? "w-full" : ""}`
               }
             >
               {isUser ? (
@@ -68,11 +63,47 @@ export default function MessageBubble({ message, active = false, activity = [] }
 }
 
 function SourcePanel({ sources }: { sources: SearchResultItem[] }) {
+  const imageSources = sources.filter((source) => source.kind === "image" && (source.thumbnail_url || source.image_url));
+  const webSources = sources.filter((source) => source.kind !== "image");
+
   return (
     <div className="mt-4 border-t pt-3 text-xs text-muted-foreground">
       <p className="mb-2 font-medium text-foreground">Sources</p>
+      {imageSources.length > 0 && (
+        <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {imageSources.slice(0, 8).map((source, index) => {
+            const imageUrl = source.thumbnail_url || source.image_url || "";
+            const href = source.source_page_url || source.url || imageUrl;
+            return (
+              <a
+                key={`${imageUrl}-${index}`}
+                href={href}
+                target="_blank"
+                rel="noreferrer"
+                className="group relative block aspect-[4/3] overflow-hidden rounded-lg border bg-muted/35"
+                title={source.title || source.domain || "Image result"}
+              >
+                <img
+                  src={imageProxyUrl(imageUrl)}
+                  alt={source.title || "Image result"}
+                  loading="lazy"
+                  decoding="async"
+                  referrerPolicy="no-referrer"
+                  className="size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+                />
+                {source.domain && (
+                  <span className="absolute inset-x-0 bottom-0 truncate bg-background/82 px-2 py-1 text-[10px] text-foreground backdrop-blur">
+                    {source.domain}
+                  </span>
+                )}
+              </a>
+            );
+          })}
+        </div>
+      )}
+      {webSources.length > 0 && (
       <ul className="space-y-1.5">
-        {sources.map((source, index) => (
+        {webSources.map((source, index) => (
           <li key={`${source.url}-${index}`} className="flex min-w-0 items-baseline gap-2">
             <span className="flex-none font-mono text-[11px] text-muted-foreground">[{index + 1}]</span>
             <a
@@ -87,45 +118,33 @@ function SourcePanel({ sources }: { sources: SearchResultItem[] }) {
           </li>
         ))}
       </ul>
+      )}
     </div>
   );
 }
 
+function imageProxyUrl(url: string) {
+  return `${BACKEND_URL}/image-proxy?url=${encodeURIComponent(url)}`;
+}
+
 function ActivityPanel({ activity }: { activity: ActivityEvent[] }) {
   const latest = activity[activity.length - 1];
-  const visible = activity.slice(-4);
-  const LatestIcon = activityIcon[latest.kind];
+  const isError = latest.kind === "error";
 
   return (
-    <Bubble variant={latest.kind === "error" ? "destructive" : "muted"} className="max-w-full">
-      <BubbleContent className="w-full border-border/70 bg-card/72">
-        <div className="flex items-start gap-3" role="status" aria-live="polite" aria-atomic="false">
-          <div className="grid size-9 flex-none place-items-center rounded-lg border bg-background/70 text-primary">
-            {latest.kind === "generate" ? <Loader2 className="size-4 animate-spin" /> : <LatestIcon className="size-4" />}
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-foreground">{latest.label}</p>
-            {latest.detail && <p className="mt-0.5 truncate text-xs text-muted-foreground">{latest.detail}</p>}
-          </div>
-        </div>
-
-        <div className="mt-3 space-y-1.5">
-          {visible.map((item) => {
-            const Icon = activityIcon[item.kind];
-            return (
-              <Marker key={item.id} className="text-xs">
-                <MarkerIcon>
-                  <Icon className={item.kind === "error" ? "text-destructive" : "text-primary"} />
-                </MarkerIcon>
-                <MarkerContent className="truncate">
-                  {item.label}
-                  {item.detail ? ` - ${item.detail}` : ""}
-                </MarkerContent>
-              </Marker>
-            );
-          })}
-        </div>
-      </BubbleContent>
-    </Bubble>
+    <div
+      className={`flex max-w-full items-center gap-2 px-1 py-1 text-sm ${
+        isError ? "text-destructive" : "text-muted-foreground"
+      }`}
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <span
+        className={`size-1.5 flex-none rounded-full ${isError ? "bg-destructive" : "animate-pulse bg-primary"}`}
+        aria-hidden="true"
+      />
+      <span className="min-w-0 truncate">{latest.label}</span>
+    </div>
   );
 }

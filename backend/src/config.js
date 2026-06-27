@@ -40,6 +40,8 @@ export const SEARCH_TIMEOUT_SECONDS = numberFromEnv("SEARCH_TIMEOUT_SECONDS", 15
 export const SEARCH_QUERY_VARIANTS = numberFromEnv("SEARCH_QUERY_VARIANTS", 3);
 export const SEARCH_SAFESEARCH_DEFAULT = numberFromEnv("SEARCH_SAFESEARCH_DEFAULT", 0);
 export const SEARCH_LANGUAGE = process.env.SEARCH_LANGUAGE || "auto";
+export const SEARCH_IMAGE_RESULTS = numberFromEnv("SEARCH_IMAGE_RESULTS", 8);
+export const SEARCH_IMAGE_ENGINES = process.env.SEARCH_IMAGE_ENGINES || "google images";
 
 export const LLM_TEMPERATURE = numberFromEnv("LLM_TEMPERATURE", 0.72);
 export const LLM_TOP_P = numberFromEnv("LLM_TOP_P", 0.92);

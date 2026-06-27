@@ -1,6 +1,8 @@
 import { URL } from "node:url";
 import {
   MAX_SEARCH_RESULTS,
+  SEARCH_IMAGE_ENGINES,
+  SEARCH_IMAGE_RESULTS,
   SEARCH_LANGUAGE,
   SEARCH_QUERY_VARIANTS,
   SEARCH_SAFESEARCH_DEFAULT,
@@ -81,15 +83,27 @@ export async function search(query, maxResults = MAX_SEARCH_RESULTS, options = {
   if (!cleanQuery) return [];
 
   const variants = queryVariants(cleanQuery, options.variantCount ?? SEARCH_QUERY_VARIANTS);
-  const batches = await Promise.allSettled(variants.map((variant) => searchSearxng(variant, options)));
-  const failures = batches.filter((batch) => batch.status === "rejected");
-  const results = batches.flatMap((batch) => (batch.status === "fulfilled" ? batch.value : []));
+  const [webBatches, imageBatch] = await Promise.all([
+    Promise.allSettled(variants.map((variant) => searchSearxng(variant, options))),
+    options.includeImages === false
+      ? Promise.resolve({ status: "fulfilled", value: [] })
+      : searchSearxngImages(cleanQuery, options).then(
+          (value) => ({ status: "fulfilled", value }),
+          (reason) => ({ status: "rejected", reason })
+        ),
+  ]);
+  const failures = webBatches.filter((batch) => batch.status === "rejected");
+  if (imageBatch.status === "rejected") failures.push(imageBatch);
+  const webResults = webBatches.flatMap((batch) => (batch.status === "fulfilled" ? batch.value : []));
+  const imageResults = imageBatch.status === "fulfilled" ? imageBatch.value : [];
 
-  if (!results.length && failures.length) {
+  if (!webResults.length && !imageResults.length && failures.length) {
     throw failures[0].reason;
   }
 
-  return rankAndDedupe(results, cleanQuery).slice(0, Math.max(1, maxResults));
+  const rankedWeb = rankAndDedupe(webResults, cleanQuery).slice(0, Math.max(1, maxResults));
+  const rankedImages = dedupeImages(imageResults).slice(0, Math.max(0, options.imageResults ?? SEARCH_IMAGE_RESULTS));
+  return [...rankedWeb, ...rankedImages];
 }
 
 export function queryVariants(query, maxVariants = SEARCH_QUERY_VARIANTS) {
@@ -128,6 +142,32 @@ async function searchSearxng(query, options) {
   return (data.results || []).map(normalizeItem).filter(Boolean);
 }
 
+async function searchSearxngImages(query, options) {
+  const preferredEngines = options.imageEngines ?? SEARCH_IMAGE_ENGINES;
+  try {
+    return await fetchImageResults(query, options, preferredEngines);
+  } catch (error) {
+    if (!preferredEngines) throw error;
+    return fetchImageResults(query, options, "");
+  }
+}
+
+async function fetchImageResults(query, options, engines) {
+  const url = new URL("/search", SEARXNG_BASE_URL);
+  url.searchParams.set("q", query);
+  url.searchParams.set("format", "json");
+  url.searchParams.set("categories", "images");
+  url.searchParams.set("safesearch", String(clampSafeSearch(options.safeSearch)));
+  url.searchParams.set("pageno", "1");
+  if (engines) url.searchParams.set("engines", engines);
+  if (SEARCH_LANGUAGE && SEARCH_LANGUAGE !== "auto") url.searchParams.set("language", SEARCH_LANGUAGE);
+
+  const response = await fetch(url, { signal: AbortSignal.timeout(SEARCH_TIMEOUT_SECONDS * 1000) });
+  if (!response.ok) throw new Error(`SearXNG image search returned ${response.status}`);
+  const data = await response.json();
+  return (data.results || []).map(normalizeImageItem).filter(Boolean);
+}
+
 function normalizeItem(item, rank) {
   const url = absoluteUrl(item.url || "");
   if (!url) return null;
@@ -146,6 +186,33 @@ function normalizeItem(item, rank) {
     domain: domain || null,
     published_date: item.publishedDate || item.published_date || null,
     score: scoreItem({ item, queryTitle: title, snippet, domain, rank }),
+  };
+}
+
+function normalizeImageItem(item, rank) {
+  const imageUrl = httpUrl(item.img_src || item.image || item.image_url || "");
+  const thumbnailUrl = httpUrl(item.thumbnail || item.thumbnail_src || item.img_src || "");
+  const sourceUrl = httpUrl(item.url || item.source_url || "");
+  if (!imageUrl && !thumbnailUrl) return null;
+
+  const displayUrl = sourceUrl || imageUrl || thumbnailUrl;
+  const parsed = new URL(displayUrl);
+  const domain = parsed.hostname.toLowerCase().replace(/^www\./, "");
+  const engines = Array.isArray(item.engines) ? item.engines : item.engine ? [item.engine] : [];
+  const title = oneLine(item.title || item.source || domain || "Image result");
+
+  return {
+    title: title || "Image result",
+    url: displayUrl,
+    snippet: oneLine(item.content || item.snippet || ""),
+    kind: "image",
+    image_url: imageUrl || thumbnailUrl,
+    thumbnail_url: thumbnailUrl || imageUrl,
+    source_page_url: sourceUrl || null,
+    source: engines.join(", ") || null,
+    domain: domain || null,
+    published_date: null,
+    score: 1.5 + 1 / Math.max(rank + 1, 1),
   };
 }
 
@@ -171,6 +238,17 @@ function absoluteUrl(value) {
   }
 }
 
+function httpUrl(value) {
+  const url = absoluteUrl(value);
+  if (!url) return "";
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? url : "";
+  } catch {
+    return "";
+  }
+}
+
 function rankAndDedupe(results, query) {
   const merged = new Map();
   for (const result of results) {
@@ -181,6 +259,19 @@ function rankAndDedupe(results, query) {
       merged.set(result.url, withScore);
     } else if (withScore.snippet && !existing.snippet.includes(withScore.snippet)) {
       existing.snippet = `${existing.snippet} ${withScore.snippet}`.trim().slice(0, 800);
+    }
+  }
+  return [...merged.values()].sort((a, b) => b.score - a.score);
+}
+
+function dedupeImages(results) {
+  const merged = new Map();
+  for (const result of results) {
+    const key = result.image_url || result.thumbnail_url || result.url;
+    if (!key) continue;
+    const existing = merged.get(key);
+    if (!existing || (result.thumbnail_url && !existing.thumbnail_url) || result.score > existing.score) {
+      merged.set(key, result);
     }
   }
   return [...merged.values()].sort((a, b) => b.score - a.score);

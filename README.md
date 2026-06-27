@@ -38,7 +38,7 @@ $env:LLAMA_GPU_LAYERS = "999"
 
 ## Web Search
 
-Search is optional per message. When enabled, Bonfire asks local SearXNG for result candidates, deduplicates and reranks them, reads a few top pages, and gives the model compact source context. Source links are shown under the assistant reply.
+Search is optional per message. When enabled, Bonfire asks local SearXNG for web and image result candidates with safe search disabled by default, deduplicates and reranks them, reads a few top web pages, and gives the model compact source context. Source links and image thumbnails are shown under the assistant reply. Image thumbnails are proxied through the backend so they still load when the UI is opened through Tailscale Funnel.
 
 Useful backend settings live in `backend/.env`:
 
@@ -53,6 +53,9 @@ MAX_SEARCH_RESULTS=5
 MAX_PAGES_TO_READ=2
 SEARCH_QUERY_VARIANTS=3
 SEARCH_TIMEOUT_SECONDS=15
+SEARCH_SAFESEARCH_DEFAULT=0
+SEARCH_IMAGE_RESULTS=8
+SEARCH_IMAGE_ENGINES=google images
 ```
 
 ## Prompt Presets

@@ -2,7 +2,10 @@ export interface SearchResultItem {
   title: string;
   url: string;
   snippet: string;
-  kind?: "web";
+  kind?: "web" | "image";
+  image_url?: string | null;
+  thumbnail_url?: string | null;
+  source_page_url?: string | null;
   source?: string | null;
   domain?: string | null;
   published_date?: string | null;

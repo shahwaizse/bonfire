@@ -1,7 +1,15 @@
 import express from "express";
 import cors from "cors";
 import { randomUUID } from "node:crypto";
-import { PORT, HOST, CORS_ORIGINS, DEFAULT_GUARDRAILS, LLM_TEMPERATURE, MAX_PAGES_TO_READ } from "./config.js";
+import {
+  PORT,
+  HOST,
+  CORS_ORIGINS,
+  DEFAULT_GUARDRAILS,
+  LLM_TEMPERATURE,
+  MAX_PAGES_TO_READ,
+  SEARCH_TIMEOUT_SECONDS,
+} from "./config.js";
 import { database } from "./db.js";
 import { ensureBuiltinPresets, GENERAL_ID, pickPreset } from "./presets.js";
 import { buildSystemPrompt, buildWebContext, selectRecentHistory } from "./prompting.js";
@@ -169,6 +177,42 @@ app.post("/read-page", async (req, res) => {
   }
 });
 
+app.get("/image-proxy", async (req, res) => {
+  try {
+    const target = String(req.query?.url || "").trim();
+    const url = new URL(target);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return res.status(400).json({ detail: "Only http and https image URLs are supported" });
+    }
+
+    const upstream = await fetch(url, {
+      signal: AbortSignal.timeout(SEARCH_TIMEOUT_SECONDS * 1000),
+      headers: {
+        "User-Agent": "Bonfire/0.2 image proxy",
+        Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+      },
+    });
+    if (!upstream.ok) return res.status(502).json({ detail: `Image request failed: ${upstream.status}` });
+
+    const contentLength = Number(upstream.headers.get("content-length") || 0);
+    if (contentLength > 8 * 1024 * 1024) return res.status(413).json({ detail: "Image is too large" });
+
+    const contentType = upstream.headers.get("content-type") || "image/jpeg";
+    if (!contentType.toLowerCase().startsWith("image/")) {
+      return res.status(415).json({ detail: "URL did not return an image" });
+    }
+
+    const buffer = Buffer.from(await upstream.arrayBuffer());
+    if (buffer.length > 8 * 1024 * 1024) return res.status(413).json({ detail: "Image is too large" });
+
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Content-Type", contentType);
+    res.send(buffer);
+  } catch (error) {
+    res.status(502).json({ detail: `Image proxy failed: ${error.message}` });
+  }
+});
+
 app.post("/chat", async (req, res) => {
   const message = String(req.body?.message || "").trim();
   if (!message) return res.status(400).json({ detail: "Message is required" });
@@ -225,10 +269,13 @@ app.post("/chat", async (req, res) => {
         sources = await searxngSearch(buildSearchQuery(message, history));
         if (sources.length) {
           send("search_results", sources);
-          send("status", "Reading sources...");
-          const pageReads = await readSearchPages(sources);
-          for (const page of pageReads) send("page_read", page);
-          llmMessages.push({ role: "system", content: buildWebContext(sources, pageReads) });
+          const webSources = sources.filter((source) => (source.kind || "web") === "web");
+          if (webSources.length) {
+            send("status", "Reading sources...");
+            const pageReads = await readSearchPages(webSources);
+            for (const page of pageReads) send("page_read", page);
+            llmMessages.push({ role: "system", content: buildWebContext(webSources, pageReads) });
+          }
         }
       } catch (error) {
         send("status", `Web search failed: ${error.message}`);
@@ -369,7 +416,7 @@ function buildSearchQuery(message, history) {
 }
 
 async function readSearchPages(results) {
-  const pages = results.filter((result) => result.url).slice(0, MAX_PAGES_TO_READ);
+  const pages = results.filter((result) => (result.kind || "web") === "web" && result.url).slice(0, MAX_PAGES_TO_READ);
   const settled = await Promise.allSettled(pages.map((result) => readPage(result.url)));
   return settled.flatMap((item) => (item.status === "fulfilled" ? [item.value] : []));
 }
