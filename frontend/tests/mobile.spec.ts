@@ -33,6 +33,7 @@ test("settings opens from the sidebar on mobile", async ({ page }) => {
 
 test("composer and sidebar fit without horizontal overflow", async ({ page }) => {
   await page.goto("/");
+  await expect(page.locator("body > header")).toHaveCount(0);
   const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
   const clientWidth = await page.evaluate(() => document.documentElement.clientWidth);
   expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1);

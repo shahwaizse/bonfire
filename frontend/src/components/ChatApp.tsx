@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { ArrowDown, Menu, Sparkles } from "lucide-react";
+import { ArrowDown, Menu } from "lucide-react";
 import Sidebar from "./Sidebar";
 import MessageBubble from "./MessageBubble";
 import ComposerBar from "./ComposerBar";
@@ -421,16 +421,17 @@ export default function ChatApp() {
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 flex-none items-center justify-between border-b bg-background/78 px-3 backdrop-blur-xl sm:hidden">
-          <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} aria-label="Open conversations">
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex justify-start p-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] sm:hidden">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open conversations"
+            className="pointer-events-auto bg-background/78 backdrop-blur-xl"
+          >
             <Menu />
           </Button>
-          <div className="flex min-w-0 items-center gap-2">
-            <Sparkles className="size-4 text-primary" />
-            <span className="truncate text-sm font-medium">Bonfire</span>
-          </div>
-          <span className="size-10" aria-hidden="true" />
-        </header>
+        </div>
 
         {messages.length === 0 ? (
           <main className="flex min-h-0 flex-1 flex-col items-center justify-center px-3 py-8 pb-[calc(env(safe-area-inset-bottom)+2rem)] sm:pb-8">
@@ -458,7 +459,7 @@ export default function ChatApp() {
             <MessageScrollerProvider>
               <MessageScroller className="flex-1">
                 <MessageScrollerViewport data-testid="message-viewport">
-                  <MessageScrollerContent className="mx-auto w-full max-w-[840px] gap-5 px-3 py-5 sm:px-6">
+                  <MessageScrollerContent className="mx-auto w-full max-w-[840px] gap-5 px-3 pb-5 pt-[calc(env(safe-area-inset-top)+4.25rem)] sm:px-6 sm:pt-5">
                     {messages.map((message, index) => (
                       <MessageScrollerItem key={message.id}>
                         <MessageBubble

@@ -2,6 +2,7 @@ import { URL } from "node:url";
 import {
   MAX_SEARCH_RESULTS,
   SEARCH_IMAGE_ENGINES,
+  SEARCH_IMAGE_FALLBACK_ENGINES,
   SEARCH_IMAGE_RESULTS,
   SEARCH_LANGUAGE,
   SEARCH_QUERY_VARIANTS,
@@ -77,6 +78,15 @@ const STOPWORDS = new Set([
 const TOKEN_RE = /[a-z0-9][a-z0-9._+-]*/gi;
 const RECENT_INTENT_RE = /\b(latest|recent|today|this week|breaking|news|current|202[4-9])\b/i;
 const TRACKING_KEYS = new Set(["fbclid", "gclid", "igshid", "mc_cid", "mc_eid", "ref", "ref_src", "spm"]);
+const IMAGE_ENGINE_SHORTCUTS = new Map([
+  ["google images", "goi"],
+  ["duckduckgo images", "ddi"],
+  ["bing images", "bii"],
+  ["brave.images", "brimg"],
+  ["pexels", "pe"],
+  ["unsplash", "us"],
+  ["pinterest", "pin"],
+]);
 
 export async function search(query, maxResults = MAX_SEARCH_RESULTS, options = {}) {
   const cleanQuery = query.replace(/\s+/g, " ").trim();
@@ -143,29 +153,49 @@ async function searchSearxng(query, options) {
 }
 
 async function searchSearxngImages(query, options) {
-  const preferredEngines = options.imageEngines ?? SEARCH_IMAGE_ENGINES;
-  try {
-    return await fetchImageResults(query, options, preferredEngines);
-  } catch (error) {
-    if (!preferredEngines) throw error;
-    return fetchImageResults(query, options, "");
-  }
+  const preferredEngines = parseEngineList(options.imageEngines ?? SEARCH_IMAGE_ENGINES);
+  const fallbackEngines = parseEngineList(options.imageFallbackEngines ?? SEARCH_IMAGE_FALLBACK_ENGINES);
+  const preferred = await fetchImageEngineSet(query, options, preferredEngines);
+  if (preferred.length) return preferred;
+
+  const fallback = await fetchImageEngineSet(query, options, fallbackEngines);
+  if (fallback.length) return fallback;
+
+  return fetchImageResults(query, options, "");
 }
 
-async function fetchImageResults(query, options, engines) {
+async function fetchImageEngineSet(query, options, engines) {
+  if (!engines.length) return [];
+  const batches = await Promise.allSettled(engines.map((engine) => fetchImageResults(query, options, engine)));
+  return batches.flatMap((batch) => (batch.status === "fulfilled" ? batch.value : []));
+}
+
+async function fetchImageResults(query, options, engine) {
   const url = new URL("/search", SEARXNG_BASE_URL);
-  url.searchParams.set("q", query);
+  url.searchParams.set("q", imageEngineQuery(query, engine));
   url.searchParams.set("format", "json");
   url.searchParams.set("categories", "images");
   url.searchParams.set("safesearch", String(clampSafeSearch(options.safeSearch)));
   url.searchParams.set("pageno", "1");
-  if (engines) url.searchParams.set("engines", engines);
   if (SEARCH_LANGUAGE && SEARCH_LANGUAGE !== "auto") url.searchParams.set("language", SEARCH_LANGUAGE);
 
   const response = await fetch(url, { signal: AbortSignal.timeout(SEARCH_TIMEOUT_SECONDS * 1000) });
   if (!response.ok) throw new Error(`SearXNG image search returned ${response.status}`);
   const data = await response.json();
   return (data.results || []).map(normalizeImageItem).filter(Boolean);
+}
+
+function imageEngineQuery(query, engine) {
+  const normalized = String(engine || "").trim().toLowerCase();
+  const shortcut = IMAGE_ENGINE_SHORTCUTS.get(normalized);
+  return shortcut ? `!${shortcut} ${query}` : query;
+}
+
+function parseEngineList(value) {
+  return String(value || "")
+    .split(",")
+    .map((engine) => engine.trim())
+    .filter(Boolean);
 }
 
 function normalizeItem(item, rank) {

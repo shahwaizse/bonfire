@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Message, MessageContent, MessageFooter } from "@/components/ui/message";
 import { BACKEND_URL } from "@/lib/api";
+import { faviconUrl, sourceDomain } from "@/lib/sources";
 
 interface MessageBubbleProps {
   message: DisplayMessage;
@@ -49,7 +50,7 @@ export default function MessageBubble({ message, active = false, activity = [] }
               ) : (
                 <div className="prose-chat">
                   <Suspense fallback={<p className="whitespace-pre-wrap">{message.content}</p>}>
-                    <MarkdownContent content={message.content} />
+                    <MarkdownContent content={message.content} sources={message.sources} />
                   </Suspense>
                 </div>
               )}
@@ -102,24 +103,50 @@ function SourcePanel({ sources }: { sources: SearchResultItem[] }) {
         </div>
       )}
       {webSources.length > 0 && (
-      <ul className="space-y-1.5">
-        {webSources.map((source, index) => (
-          <li key={`${source.url}-${index}`} className="flex min-w-0 items-baseline gap-2">
-            <span className="flex-none font-mono text-[11px] text-muted-foreground">[{index + 1}]</span>
-            <a
-              href={source.url}
-              target="_blank"
-              rel="noreferrer"
-              className="block min-w-0 truncate text-primary underline-offset-4 hover:underline"
-            >
-              {source.title || source.url}
-            </a>
-            {source.domain && <span className="hidden flex-none text-[11px] sm:inline">{source.domain}</span>}
-          </li>
-        ))}
-      </ul>
+        <ul className="space-y-1.5">
+          {webSources.map((source, index) => (
+            <li key={`${source.url}-${index}`} className="flex min-w-0 items-center gap-2">
+              <SourceFavicon source={source} />
+              <a
+                href={source.url}
+                target="_blank"
+                rel="noreferrer"
+                className="block min-w-0 truncate text-primary underline-offset-4 hover:underline"
+              >
+                {source.title || source.url}
+              </a>
+              {source.domain && <span className="hidden flex-none text-[11px] sm:inline">{source.domain}</span>}
+            </li>
+          ))}
+        </ul>
       )}
     </div>
+  );
+}
+
+function SourceFavicon({ source }: { source: SearchResultItem }) {
+  const icon = faviconUrl(source);
+  const label = sourceDomain(source);
+  return (
+    <span
+      className="grid size-5 flex-none place-items-center rounded-md border bg-background/70"
+      title={label || source.title || source.url}
+      aria-hidden="true"
+      data-testid="source-favicon"
+    >
+      {icon && (
+        <img
+          src={icon}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          className="size-3.5"
+          onError={(event) => {
+            event.currentTarget.style.display = "none";
+          }}
+        />
+      )}
+    </span>
   );
 }
 

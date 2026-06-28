@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BadgeCheck, Flame, Globe2, Plus, Save, Server, Square, Trash2, X } from "lucide-react";
+import { BadgeCheck, Globe2, Plus, Save, Server, Square, Trash2, X } from "lucide-react";
 import { BACKEND_URL, clearAllChats, fetchFunnelStatus } from "@/lib/api";
 import type { FunnelStatus, Preset, PromptMode, Settings } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
@@ -61,10 +61,7 @@ export default function SettingsPanel({
         className="flex h-[min(760px,calc(100vh-28px))] max-w-[1040px] grid-rows-none flex-col gap-0 overflow-hidden p-0 sm:max-w-[1040px]"
       >
         <DialogHeader className="border-b px-5 py-4">
-          <DialogTitle className="flex items-center gap-2">
-            <Flame className="size-4 text-primary" />
-            Settings
-          </DialogTitle>
+          <DialogTitle>Settings</DialogTitle>
           <DialogDescription>Prompt routing, guardrails, and local service status.</DialogDescription>
         </DialogHeader>
 

@@ -65,6 +65,43 @@ test("does not force-scroll to the bottom when a long answer arrives", async ({ 
   expect(isPinnedAboveBottom).toBe(true);
 });
 
+test("renders source citations and source rows with favicons", async ({ page }) => {
+  await page.route(`${BACKEND_URL}/chat`, async (route) => {
+    const events = [
+      { type: "conversation", data: { conversation_id: "favicon-source-chat", title: "Source favicon" } },
+      { type: "preset", data: { id: "general", name: "General" } },
+      {
+        type: "search_results",
+        data: [
+          {
+            title: "Example Source",
+            url: "https://example.com/story",
+            snippet: "A useful web source.",
+            kind: "web",
+            domain: "example.com",
+          },
+        ],
+      },
+      { type: "token", data: "This answer cites the source [1]." },
+      { type: "done", data: { conversation_id: "favicon-source-chat" } },
+    ];
+    await route.fulfill({
+      status: 200,
+      contentType: "application/x-ndjson",
+      body: events.map((event) => JSON.stringify(event)).join("\n") + "\n",
+    });
+  });
+
+  await page.goto("/");
+  await page.getByPlaceholder("Ask anything...").fill("cite a source");
+  await page.getByRole("button", { name: "Send message" }).click();
+
+  await expect(page.getByText("This answer cites the source")).toBeVisible();
+  await expect(page.getByText("[1]")).toHaveCount(0);
+  await expect(page.getByTestId("citation-favicon")).toBeVisible();
+  await expect(page.getByTestId("source-favicon")).toBeVisible();
+});
+
 test("starting a new chat clears the conversation and returns to empty state", async ({ page }) => {
   await page.goto("/");
   const input = page.getByPlaceholder("Ask anything...");
