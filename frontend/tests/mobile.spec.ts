@@ -20,17 +20,6 @@ test("sidebar is hidden behind a hamburger and opens as a drawer", async ({ page
   await expect(page.getByRole("button", { name: "New chat" })).toHaveCount(0);
 });
 
-test("settings opens from the sidebar on mobile", async ({ page }) => {
-  await page.goto("/");
-  await page.getByRole("button", { name: "Open conversations" }).click();
-  await page.getByRole("button", { name: "Settings" }).click();
-
-  const panel = page.getByTestId("settings-panel");
-  const box = await panel.boundingBox();
-  const viewportWidth = page.viewportSize()!.width;
-  expect(box?.width).toBeGreaterThan(viewportWidth * 0.9);
-});
-
 test("composer and sidebar fit without horizontal overflow", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("body > header")).toHaveCount(0);
@@ -43,7 +32,6 @@ test("composer stays inside the mobile viewport after sending", async ({ page })
   await page.route(`${BACKEND_URL}/chat`, async (route) => {
     const events = [
       { type: "conversation", data: { conversation_id: "mobile-composer-chat", title: "Mobile composer" } },
-      { type: "preset", data: { id: "general", name: "General" } },
       { type: "status", data: "Generating answer..." },
       { type: "token", data: "mobile response ok" },
       { type: "done", data: { conversation_id: "mobile-composer-chat" } },

@@ -1,54 +1,29 @@
 import express from "express";
 import cors from "cors";
-import { randomUUID } from "node:crypto";
-import {
-  PORT,
-  HOST,
-  CORS_ORIGINS,
-  DEFAULT_GUARDRAILS,
-  LLM_TEMPERATURE,
-  MAX_PAGES_TO_READ,
-  SEARCH_TIMEOUT_SECONDS,
-} from "./config.js";
+import { HOST, PORT, CORS_ORIGINS } from "./config.js";
 import { database } from "./db.js";
-import { ensureBuiltinPresets, GENERAL_ID, pickPreset } from "./presets.js";
-import { buildSystemPrompt, buildWebContext, selectRecentHistory } from "./prompting.js";
-import { healthCheck, streamChatCompletion } from "./llama.js";
-import { search as searxngSearch } from "./search.js";
-import { readPage } from "./page-reader.js";
-import { funnelStatus, scheduleShutdown, setFunnelEnabled } from "./system-control.js";
-
-const SETTINGS_KEYS = [
-  "prompt_mode",
-  "active_preset_id",
-  "custom_prompt",
-  "core_system_prompt",
-  "search_default",
-  "guardrails",
-  "funnel_enabled",
-  "llm_temperature",
-];
-
-const SETTINGS_DEFAULTS = {
-  prompt_mode: "auto",
-  active_preset_id: GENERAL_ID,
-  custom_prompt: "",
-  core_system_prompt: "",
-  search_default: "false",
-  guardrails: DEFAULT_GUARDRAILS,
-  funnel_enabled: "false",
-  llm_temperature: String(LLM_TEMPERATURE),
-};
+import { buildChatMessages } from "./prompting.js";
+import { healthCheck } from "./llama.js";
+import { mcpRegistry } from './mcp.js';
+import { runToolLoop } from './tool-loop.js';
+import { search } from "./search.js";
+import { AppTools } from './app-tools.js';
+import { resolveSearchContext } from './search-context.js';
+import { isPictureRequest } from './image-search.js';
 
 database.init();
-ensureBuiltinPresets(database);
 
 const app = express();
 app.use(cors({ origin: CORS_ORIGINS, credentials: true }));
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/health", async (_req, res) => {
-  res.json({ status: "ok", llama_cpp: await healthCheck() });
+  res.json({ status: "ok", llama_cpp: await healthCheck(), model: 'Qwen3.5-9B', mcp: mcpRegistry.status });
+});
+
+app.get('/tools', async (_req, res) => {
+  try { res.json({ tools: await mcpRegistry.catalog(), servers: mcpRegistry.status }); }
+  catch { res.status(503).json({ detail: 'Invalid MCP configuration' }); }
 });
 
 app.get("/conversations", (_req, res) => {
@@ -56,25 +31,26 @@ app.get("/conversations", (_req, res) => {
 });
 
 app.delete("/conversations", (_req, res) => {
-  const count = database.clearConversations();
-  res.json({ ok: true, conversations_deleted: count });
+  res.json({ ok: true, conversations_deleted: database.clearConversations() });
 });
 
 app.get("/conversations/:id", (req, res) => {
   const conversation = database.getConversation(req.params.id);
   if (!conversation) return res.status(404).json({ detail: "Conversation not found" });
+
   const messages = database.getConversationMessages(req.params.id).map((message) => ({
     ...message,
     sources: parseJson(message.sources, null),
+    tool_activity: parseJson(message.tool_activity, null),
+    images: parseJson(message.images, null),
   }));
   res.json({ ...conversation, messages });
 });
 
 app.patch("/conversations/:id", (req, res) => {
-  const updates = {};
-  if (typeof req.body?.title === "string") updates.title = req.body.title.trim() || "Untitled conversation";
-  if (typeof req.body?.folder === "string") updates.folder = req.body.folder.trim();
-  const conversation = database.updateConversation(req.params.id, updates);
+  const conversation = database.updateConversation(req.params.id, {
+    title: typeof req.body?.title === "string" ? req.body.title : "",
+  });
   if (!conversation) return res.status(404).json({ detail: "Conversation not found" });
   res.json(conversation);
 });
@@ -84,132 +60,13 @@ app.delete("/conversations/:id", (req, res) => {
   res.json({ ok: true });
 });
 
-app.get("/settings", (_req, res) => {
-  res.json(getSettings());
-});
-
-app.put("/settings", (req, res) => {
-  const allowed = new Set(SETTINGS_KEYS);
-  for (const [key, value] of Object.entries(req.body || {})) {
-    if (!allowed.has(key)) continue;
-    database.setSetting(key, typeof value === "boolean" ? String(value) : String(value));
-  }
-  res.json(getSettings());
-});
-
-app.get("/system/funnel", (_req, res) => {
-  res.json({ saved_enabled: getSettings().funnel_enabled, ...funnelStatus() });
-});
-
-app.post("/system/funnel", (req, res) => {
-  try {
-    const enabled = Boolean(req.body?.enabled);
-    setFunnelEnabled(enabled);
-    database.setSetting("funnel_enabled", String(enabled));
-    res.json(getSettings());
-  } catch (error) {
-    res.status(502).json({ detail: `Failed to update Tailscale Funnel: ${error.message}` });
-  }
-});
-
-app.post("/system/shutdown", (_req, res) => {
-  scheduleShutdown();
-  res.json({ ok: true });
-});
-
-app.get("/presets", (_req, res) => {
-  res.json(database.listPresets().map(presetOut));
-});
-
-app.post("/presets", (req, res) => {
-  const name = String(req.body?.name || "").trim();
-  const systemPrompt = String(req.body?.system_prompt || "").trim();
-  if (!name || !systemPrompt) return res.status(400).json({ detail: "Preset name and system prompt are required" });
-  const slug = slugify(name);
-  const id = database.getPreset(slug) ? `${slug}-${randomUUID().slice(0, 6)}` : slug;
-  database.upsertPreset({
-    id,
-    name,
-    description: String(req.body?.description || "").trim(),
-    systemPrompt,
-    keywords: Array.isArray(req.body?.keywords) ? req.body.keywords : [],
-  });
-  res.json(presetOut(database.getPreset(id)));
-});
-
-app.put("/presets/:id", (req, res) => {
-  const existing = database.getPreset(req.params.id);
-  if (!existing) return res.status(404).json({ detail: "Preset not found" });
-  const updates = {};
-  if (typeof req.body?.name === "string") updates.name = req.body.name.trim();
-  if (typeof req.body?.description === "string") updates.description = req.body.description.trim();
-  if (typeof req.body?.system_prompt === "string") updates.system_prompt = req.body.system_prompt;
-  if (Array.isArray(req.body?.keywords)) updates.keywords = req.body.keywords;
-  database.updatePreset(req.params.id, updates);
-  res.json(presetOut(database.getPreset(req.params.id)));
-});
-
-app.delete("/presets/:id", (req, res) => {
-  if (req.params.id === GENERAL_ID) return res.status(400).json({ detail: "Cannot delete the General preset" });
-  database.deletePreset(req.params.id);
-  res.json({ ok: true });
-});
-
 app.post("/search", async (req, res) => {
   try {
     const query = String(req.body?.query || "").trim();
     if (!query) return res.status(400).json({ detail: "Query is required" });
-    const requestedMax = Number(req.body?.max_results);
-    const results = await searxngSearch(query, Number.isFinite(requestedMax) ? requestedMax : undefined);
-    res.json({ query, results });
+    res.json({ query, results: await search(query) });
   } catch (error) {
-    res.status(502).json({ detail: `SearXNG request failed: ${error.message}` });
-  }
-});
-
-app.post("/read-page", async (req, res) => {
-  try {
-    const url = String(req.body?.url || "").trim();
-    if (!url) return res.status(400).json({ detail: "URL is required" });
-    res.json(await readPage(url));
-  } catch (error) {
-    res.status(502).json({ detail: `Failed to read page: ${error.message}` });
-  }
-});
-
-app.get("/image-proxy", async (req, res) => {
-  try {
-    const target = String(req.query?.url || "").trim();
-    const url = new URL(target);
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-      return res.status(400).json({ detail: "Only http and https image URLs are supported" });
-    }
-
-    const upstream = await fetch(url, {
-      signal: AbortSignal.timeout(SEARCH_TIMEOUT_SECONDS * 1000),
-      headers: {
-        "User-Agent": "Bonfire/0.2 image proxy",
-        Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-      },
-    });
-    if (!upstream.ok) return res.status(502).json({ detail: `Image request failed: ${upstream.status}` });
-
-    const contentLength = Number(upstream.headers.get("content-length") || 0);
-    if (contentLength > 8 * 1024 * 1024) return res.status(413).json({ detail: "Image is too large" });
-
-    const contentType = upstream.headers.get("content-type") || "image/jpeg";
-    if (!contentType.toLowerCase().startsWith("image/")) {
-      return res.status(415).json({ detail: "URL did not return an image" });
-    }
-
-    const buffer = Buffer.from(await upstream.arrayBuffer());
-    if (buffer.length > 8 * 1024 * 1024) return res.status(413).json({ detail: "Image is too large" });
-
-    res.setHeader("Cache-Control", "public, max-age=86400");
-    res.setHeader("Content-Type", contentType);
-    res.send(buffer);
-  } catch (error) {
-    res.status(502).json({ detail: `Image proxy failed: ${error.message}` });
+    res.status(502).json({ detail: `Search failed: ${error.message}` });
   }
 });
 
@@ -231,26 +88,17 @@ app.post("/chat", async (req, res) => {
   });
 
   const send = (type, data) => {
-    if (clientGone || res.destroyed || res.writableEnded) return;
-    res.write(`${JSON.stringify({ type, data })}\n`);
+    if (!clientGone && !res.destroyed && !res.writableEnded) res.write(`${JSON.stringify({ type, data })}\n`);
   };
 
   let conversationId = req.body?.conversation_id || null;
   let assistantText = "";
-  let presetId = GENERAL_ID;
-  let sources = [];
+  const tools = new AppTools({ webEnabled: Boolean(req.body?.search_enabled), emit: send });
+  const sources = tools.sources;
+  const images = tools.images;
+  const toolActivity = [];
 
   try {
-    const settings = getSettings();
-    const allPresets = database.listPresets();
-    const preset = resolvePreset({ requestedId: req.body?.preset_id, settings, presets: allPresets, message });
-    presetId = preset.id;
-    const systemPrompt = buildSystemPrompt(
-      preset.system_prompt,
-      settings.guardrails,
-      settings.core_system_prompt
-    );
-
     if (!conversationId) {
       const title = titleFromMessage(message);
       conversationId = database.createConversation(title);
@@ -258,50 +106,45 @@ app.post("/chat", async (req, res) => {
     }
 
     database.addMessage({ conversationId, role: "user", content: message });
-    send("preset", { id: preset.id, name: preset.name });
-
     const history = database.getConversationMessages(conversationId);
-    const llmMessages = [{ role: "system", content: systemPrompt }];
 
-    if (Boolean(req.body?.search_enabled)) {
-      send("status", "Searching web...");
-      try {
-        sources = await searxngSearch(buildSearchQuery(message, history));
-        if (sources.length) {
-          send("search_results", sources);
-          const webSources = sources.filter((source) => (source.kind || "web") === "web");
-          if (webSources.length) {
-            send("status", "Reading sources...");
-            const pageReads = await readSearchPages(webSources);
-            for (const page of pageReads) send("page_read", page);
-            llmMessages.push({ role: "system", content: buildWebContext(webSources, pageReads) });
-          }
-        }
-      } catch (error) {
-        send("status", `Web search failed: ${error.message}`);
-      }
+    // Web is an explicit search override until automatic tool selection is reliable.
+    // Picture intent only skips this prefetch; the model still calls search_images itself.
+    let webContext = '';
+    if (req.body?.search_enabled && !isPictureRequest(message, history)) {
+      const context = await resolveSearchContext({ message, history, webEnabled: true, signal: abortController.signal, emit: send });
+      for (const source of context.sources) tools.addSource(source);
+      tools.searchCalls++;
+      webContext = context.webContext;
     }
-
-    llmMessages.push(...selectRecentHistory(history));
+    abortController.signal.throwIfAborted();
+    const llmMessages = buildChatMessages({ history, webContext, webEnabled: Boolean(req.body?.search_enabled) });
     send("status", "Generating answer...");
 
-    for await (const token of streamChatCompletion(llmMessages, {
-      temperature: settings.llm_temperature,
+    await runToolLoop(llmMessages, {
+      registry: tools,
       signal: abortController.signal,
-    })) {
-      assistantText += token;
-      send("token", token);
-    }
+      emit: (type, data) => {
+        if (type === 'token') assistantText += data;
+        if (type === 'tool_call' || type === 'tool_result') toolActivity.push({ type, data });
+        send(type, data);
+      },
+    });
   } catch (error) {
-    if (error.name !== "AbortError") send("error", `llama.cpp request failed: ${error.message}`);
+    if (error.name !== "AbortError") {
+      const detail = `Request failed: ${error.message}`;
+      assistantText += `\n\n_Error: ${detail}_`;
+      send('error', detail);
+    }
   } finally {
-    if (conversationId && assistantText.trim()) {
+    if (conversationId && (assistantText.trim() || images.length || toolActivity.length)) {
       database.addMessage({
         conversationId,
         role: "assistant",
         content: assistantText,
-        presetId,
         sources: sources.length ? JSON.stringify(sources) : null,
+        toolActivity: toolActivity.length ? JSON.stringify(toolActivity) : null,
+        images: images.length ? JSON.stringify(images) : null,
       });
       database.touchConversation(conversationId);
     }
@@ -313,60 +156,17 @@ app.post("/chat", async (req, res) => {
 const server = app.listen(PORT, HOST, () => {
   console.log(`Bonfire backend listening on http://${HOST}:${PORT}`);
 });
+mcpRegistry.catalog().catch(() => console.error('Invalid MCP configuration; check backend/mcp.json'));
 
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
 function shutdown() {
+  void mcpRegistry.close();
   server.close(() => {
     database.close();
     process.exit(0);
   });
-}
-
-function getSettings() {
-  const raw = database.getSettings(SETTINGS_KEYS);
-  const merged = Object.fromEntries(
-    SETTINGS_KEYS.map((key) => [key, raw[key] == null ? SETTINGS_DEFAULTS[key] : raw[key]])
-  );
-  return {
-    prompt_mode: merged.prompt_mode,
-    active_preset_id: merged.active_preset_id,
-    custom_prompt: merged.custom_prompt,
-    core_system_prompt: merged.core_system_prompt,
-    search_default: merged.search_default === "true",
-    guardrails: merged.guardrails,
-    funnel_enabled: merged.funnel_enabled === "true",
-    llm_temperature: clampNumber(merged.llm_temperature, LLM_TEMPERATURE, 0, 2),
-  };
-}
-
-function resolvePreset({ requestedId, settings, presets, message }) {
-  const byId = new Map(presets.map((preset) => [preset.id, preset]));
-  if (requestedId && byId.has(requestedId)) return byId.get(requestedId);
-  if (settings.prompt_mode === "custom" && settings.custom_prompt.trim()) {
-    return {
-      id: "custom",
-      name: "Custom",
-      system_prompt: settings.custom_prompt,
-      keywords: "[]",
-    };
-  }
-  if (settings.prompt_mode === "preset" && byId.has(settings.active_preset_id)) {
-    return byId.get(settings.active_preset_id);
-  }
-  return pickPreset(message, presets);
-}
-
-function presetOut(row) {
-  return {
-    id: row.id,
-    name: row.name,
-    description: row.description,
-    system_prompt: row.system_prompt,
-    keywords: parseJson(row.keywords, []),
-    is_builtin: Boolean(row.is_builtin),
-  };
 }
 
 function parseJson(value, fallback) {
@@ -378,16 +178,6 @@ function parseJson(value, fallback) {
   }
 }
 
-function slugify(value) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || randomUUID().slice(0, 8);
-}
-
-function clampNumber(value, fallback, min, max) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.max(min, Math.min(max, parsed));
-}
-
 function titleFromMessage(message) {
   const words = message
     .replace(/\s+/g, " ")
@@ -397,26 +187,7 @@ function titleFromMessage(message) {
     .filter(Boolean)
     .slice(0, 6);
   if (!words.length) return "New chat";
+
   const title = words.join(" ");
   return title.length > 60 ? `${title.slice(0, 57).trim()}...` : title;
-}
-
-function buildSearchQuery(message, history) {
-  const current = message.replace(/\s+/g, " ").trim();
-  const lower = current.toLowerCase();
-  const words = new Set(lower.split(/\s+/).map((word) => word.replace(/[.,!?;:()[\]{}"'`]/g, "")));
-  const referential = ["it", "its", "they", "them", "that", "this", "those", "these", "he", "she", "his", "her"].some(
-    (word) => words.has(word)
-  );
-  if (current.length > 120 && !referential) return current.slice(0, 320);
-  const previousUser = [...history]
-    .reverse()
-    .find((item) => item.role === "user" && item.content && item.content !== message);
-  return previousUser ? `${previousUser.content} ${current}`.slice(0, 320) : current.slice(0, 320);
-}
-
-async function readSearchPages(results) {
-  const pages = results.filter((result) => (result.kind || "web") === "web" && result.url).slice(0, MAX_PAGES_TO_READ);
-  const settled = await Promise.allSettled(pages.map((result) => readPage(result.url)));
-  return settled.flatMap((item) => (item.status === "fulfilled" ? [item.value] : []));
 }

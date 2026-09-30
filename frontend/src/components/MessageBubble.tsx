@@ -1,10 +1,9 @@
 import { lazy, Suspense } from "react";
 import type { ActivityEvent, DisplayMessage, SearchResultItem } from "@/lib/types";
-import { Badge } from "@/components/ui/badge";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
-import { Message, MessageContent, MessageFooter } from "@/components/ui/message";
-import { BACKEND_URL } from "@/lib/api";
+import { Message, MessageContent } from "@/components/ui/message";
 import { faviconUrl, sourceDomain } from "@/lib/sources";
+import ImageGallery from './ImageGallery';
 
 interface MessageBubbleProps {
   message: DisplayMessage;
@@ -22,15 +21,7 @@ export default function MessageBubble({ message, active = false, activity = [] }
   return (
     <Message align={isUser ? "end" : "start"} data-message-id={message.id} data-message-role={message.role}>
       <MessageContent>
-        {!isUser && message.presetName && message.presetName !== "General" && (
-          <MessageFooter className="px-0">
-            <Badge variant="secondary" className="rounded-md">
-              {message.presetName}
-            </Badge>
-          </MessageFooter>
-        )}
-
-        {active && !hasContent && activity.length > 0 && <ActivityPanel activity={activity} />}
+        {active && activity.length > 0 && <ActivityPanel activity={activity} />}
 
         {hasContent && (
           <Bubble
@@ -58,68 +49,45 @@ export default function MessageBubble({ message, active = false, activity = [] }
             </BubbleContent>
           </Bubble>
         )}
+        {!isUser && Boolean(message.images?.length) && <ImageGallery images={message.images || []} />}
+        {!isUser && Boolean(message.toolActivity?.length) && (
+          <details className="mt-2 max-w-full rounded-lg border px-3 py-2 text-xs text-muted-foreground">
+            <summary className="cursor-pointer">Tools used ({message.toolActivity?.filter(event => event.type === 'tool_call').length})</summary>
+            <ul className="mt-2 space-y-2">
+              {message.toolActivity?.map((event, index) => (
+                <li key={`${event.data.id}-${index}`}>
+                  <span className="font-medium">{event.data.name.replace('__', ' / ')}{event.type === 'tool_result' ? event.data.isError ? ' · Failed' : ' · Done' : ''}</span>
+                  <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all">{event.type === 'tool_call' ? JSON.stringify(event.data.arguments) : event.data.summary}</pre>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
       </MessageContent>
     </Message>
   );
 }
 
 function SourcePanel({ sources }: { sources: SearchResultItem[] }) {
-  const imageSources = sources.filter((source) => source.kind === "image" && (source.thumbnail_url || source.image_url));
-  const webSources = sources.filter((source) => source.kind !== "image");
-
   return (
     <div className="mt-4 border-t pt-3 text-xs text-muted-foreground">
       <p className="mb-2 font-medium text-foreground">Sources</p>
-      {imageSources.length > 0 && (
-        <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {imageSources.slice(0, 8).map((source, index) => {
-            const imageUrl = source.thumbnail_url || source.image_url || "";
-            const href = source.source_page_url || source.url || imageUrl;
-            return (
-              <a
-                key={`${imageUrl}-${index}`}
-                href={href}
-                target="_blank"
-                rel="noreferrer"
-                className="group relative block aspect-[4/3] overflow-hidden rounded-lg border bg-muted/35"
-                title={source.title || source.domain || "Image result"}
-              >
-                <img
-                  src={imageProxyUrl(imageUrl)}
-                  alt={source.title || "Image result"}
-                  loading="lazy"
-                  decoding="async"
-                  referrerPolicy="no-referrer"
-                  className="size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
-                />
-                {source.domain && (
-                  <span className="absolute inset-x-0 bottom-0 truncate bg-background/82 px-2 py-1 text-[10px] text-foreground backdrop-blur">
-                    {source.domain}
-                  </span>
-                )}
-              </a>
-            );
-          })}
-        </div>
-      )}
-      {webSources.length > 0 && (
-        <ul className="space-y-1.5">
-          {webSources.map((source, index) => (
-            <li key={`${source.url}-${index}`} className="flex min-w-0 items-center gap-2">
-              <SourceFavicon source={source} />
-              <a
-                href={source.url}
-                target="_blank"
-                rel="noreferrer"
-                className="block min-w-0 truncate text-primary underline-offset-4 hover:underline"
-              >
-                {source.title || source.url}
-              </a>
-              {source.domain && <span className="hidden flex-none text-[11px] sm:inline">{source.domain}</span>}
-            </li>
-          ))}
-        </ul>
-      )}
+      <ul className="space-y-1.5">
+        {sources.map((source, index) => (
+          <li key={`${source.url}-${index}`} className="flex min-w-0 items-center gap-2">
+            <SourceFavicon source={source} />
+            <a
+              href={source.url}
+              target="_blank"
+              rel="noreferrer"
+              className="block min-w-0 truncate text-primary underline-offset-4 hover:underline"
+            >
+              {source.title || source.url}
+            </a>
+            {source.domain && <span className="hidden flex-none text-[11px] sm:inline">{source.domain}</span>}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -148,10 +116,6 @@ function SourceFavicon({ source }: { source: SearchResultItem }) {
       )}
     </span>
   );
-}
-
-function imageProxyUrl(url: string) {
-  return `${BACKEND_URL}/image-proxy?url=${encodeURIComponent(url)}`;
 }
 
 function ActivityPanel({ activity }: { activity: ActivityEvent[] }) {

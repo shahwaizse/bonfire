@@ -1,249 +1,52 @@
 import { URL } from "node:url";
-import {
-  MAX_SEARCH_RESULTS,
-  SEARCH_IMAGE_ENGINES,
-  SEARCH_IMAGE_FALLBACK_ENGINES,
-  SEARCH_IMAGE_RESULTS,
-  SEARCH_LANGUAGE,
-  SEARCH_QUERY_VARIANTS,
-  SEARCH_SAFESEARCH_DEFAULT,
-  SEARCH_TIMEOUT_SECONDS,
-  SEARXNG_BASE_URL,
-} from "./config.js";
+import { MAX_SEARCH_RESULTS } from "./config.js";
+import { providerSearch } from "./search-providers.js";
 
-const STOPWORDS = new Set([
-  "a",
-  "about",
-  "after",
-  "all",
-  "also",
-  "am",
-  "an",
-  "and",
-  "any",
-  "are",
-  "as",
-  "at",
-  "be",
-  "best",
-  "but",
-  "by",
-  "can",
-  "could",
-  "do",
-  "does",
-  "for",
-  "from",
-  "get",
-  "give",
-  "has",
-  "have",
-  "how",
-  "i",
-  "in",
-  "is",
-  "it",
-  "latest",
-  "me",
-  "more",
-  "new",
-  "news",
-  "of",
-  "on",
-  "or",
-  "please",
-  "show",
-  "tell",
-  "than",
-  "that",
-  "the",
-  "their",
-  "there",
-  "this",
-  "to",
-  "today",
-  "up",
-  "was",
-  "what",
-  "when",
-  "where",
-  "which",
-  "who",
-  "why",
-  "with",
-  "would",
-  "you",
-]);
-
-const TOKEN_RE = /[a-z0-9][a-z0-9._+-]*/gi;
-const RECENT_INTENT_RE = /\b(latest|recent|today|this week|breaking|news|current|202[4-9])\b/i;
+const EXPLICIT_URL_RE = /\b(?:https?:\/\/|www\.)[^\s<>"'`]+/gi;
+const BARE_DOMAIN_RE = /(?:^|[\s(<\[{])((?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:\/[^\s<>"'`]*)?)/gi;
+const NON_URL_SUFFIXES = new Set(["c", "cpp", "css", "go", "h", "js", "json", "md", "py", "rs", "ts", "tsx", "txt"]);
 const TRACKING_KEYS = new Set(["fbclid", "gclid", "igshid", "mc_cid", "mc_eid", "ref", "ref_src", "spm"]);
-const IMAGE_ENGINE_SHORTCUTS = new Map([
-  ["google images", "goi"],
-  ["duckduckgo images", "ddi"],
-  ["bing images", "bii"],
-  ["brave.images", "brimg"],
-  ["pexels", "pe"],
-  ["unsplash", "us"],
-  ["pinterest", "pin"],
-]);
 
-export async function search(query, maxResults = MAX_SEARCH_RESULTS, options = {}) {
-  const cleanQuery = query.replace(/\s+/g, " ").trim();
+export async function search(query, maxResults = MAX_SEARCH_RESULTS, searchProvider = providerSearch) {
+  const cleanQuery = normalizeQuery(query);
   if (!cleanQuery) return [];
 
-  const variants = queryVariants(cleanQuery, options.variantCount ?? SEARCH_QUERY_VARIANTS);
-  const [webBatches, imageBatch] = await Promise.all([
-    Promise.allSettled(variants.map((variant) => searchSearxng(variant, options))),
-    options.includeImages === false
-      ? Promise.resolve({ status: "fulfilled", value: [] })
-      : searchSearxngImages(cleanQuery, options).then(
-          (value) => ({ status: "fulfilled", value }),
-          (reason) => ({ status: "rejected", reason })
-        ),
-  ]);
-  const failures = webBatches.filter((batch) => batch.status === "rejected");
-  if (imageBatch.status === "rejected") failures.push(imageBatch);
-  const webResults = webBatches.flatMap((batch) => (batch.status === "fulfilled" ? batch.value : []));
-  const imageResults = imageBatch.status === "fulfilled" ? imageBatch.value : [];
+  const count = Math.max(1, Math.min(20, Math.floor(Number(maxResults) || MAX_SEARCH_RESULTS)));
+  const results = await searchProvider(cleanQuery, count);
+  return rankAndDedupe(results.map(normalizeItem).filter(Boolean), cleanQuery).slice(0, count);
+}
 
-  if (!webResults.length && !imageResults.length && failures.length) {
-    throw failures[0].reason;
+export function extractHttpUrls(text, maxUrls = 10) {
+  const seen = new Set();
+  const urls = [];
+
+  for (const match of urlMatches(text)) {
+    const url = normalizeExtractedUrl(match.raw);
+    const key = url.toLowerCase();
+    if (!url || seen.has(key)) continue;
+    seen.add(key);
+    urls.push(url);
+    if (urls.length >= maxUrls) break;
   }
 
-  const rankedWeb = rankAndDedupe(webResults, cleanQuery).slice(0, Math.max(1, maxResults));
-  const rankedImages = dedupeImages(imageResults).slice(0, Math.max(0, options.imageResults ?? SEARCH_IMAGE_RESULTS));
-  return [...rankedWeb, ...rankedImages];
+  return urls;
 }
 
-export function queryVariants(query, maxVariants = SEARCH_QUERY_VARIANTS) {
-  const cleaned = stripAssistantFraming(query);
-  const variants = [cleaned];
-  const compact = importantTokens(cleaned, 12).join(" ");
-  if (compact && compact.toLowerCase() !== cleaned.toLowerCase()) variants.push(compact);
-  if (RECENT_INTENT_RE.test(cleaned)) variants.push(`${compact || cleaned} ${new Date().getFullYear()}`);
+export function stripUrls(text) {
+  const value = String(text || "").replace(/\[([^\]]+)\]\(\s*((?:https?:\/\/|www\.)[^)\s]+)\s*\)/gi, "$1");
+  const matches = urlMatches(value);
+  if (!matches.length) return oneLine(value).replace(/\s*,\s*/g, " ");
 
-  const seen = new Set();
-  return variants
-    .map((variant) => variant.replace(/\s+/g, " ").trim().slice(0, 320))
-    .filter((variant) => {
-      const key = variant.toLowerCase();
-      if (!variant || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .slice(0, Math.max(1, maxVariants));
-}
+  let stripped = "";
+  let offset = 0;
+  for (const match of matches) {
+    stripped += value.slice(offset, match.start);
+    stripped += " ";
+    offset = match.end;
+  }
+  stripped += value.slice(offset);
 
-async function searchSearxng(query, options) {
-  const url = new URL("/search", SEARXNG_BASE_URL);
-  url.searchParams.set("q", query);
-  url.searchParams.set("format", "json");
-  url.searchParams.set("categories", "general");
-  url.searchParams.set("safesearch", String(clampSafeSearch(options.safeSearch)));
-  url.searchParams.set("pageno", "1");
-  const timeRange = options.timeRange ?? inferTimeRange(query);
-  if (timeRange) url.searchParams.set("time_range", timeRange);
-  if (SEARCH_LANGUAGE && SEARCH_LANGUAGE !== "auto") url.searchParams.set("language", SEARCH_LANGUAGE);
-
-  const response = await fetch(url, { signal: AbortSignal.timeout(SEARCH_TIMEOUT_SECONDS * 1000) });
-  if (!response.ok) throw new Error(`SearXNG returned ${response.status}`);
-  const data = await response.json();
-  return (data.results || []).map(normalizeItem).filter(Boolean);
-}
-
-async function searchSearxngImages(query, options) {
-  const preferredEngines = parseEngineList(options.imageEngines ?? SEARCH_IMAGE_ENGINES);
-  const fallbackEngines = parseEngineList(options.imageFallbackEngines ?? SEARCH_IMAGE_FALLBACK_ENGINES);
-  const preferred = await fetchImageEngineSet(query, options, preferredEngines);
-  if (preferred.length) return preferred;
-
-  const fallback = await fetchImageEngineSet(query, options, fallbackEngines);
-  if (fallback.length) return fallback;
-
-  return fetchImageResults(query, options, "");
-}
-
-async function fetchImageEngineSet(query, options, engines) {
-  if (!engines.length) return [];
-  const batches = await Promise.allSettled(engines.map((engine) => fetchImageResults(query, options, engine)));
-  return batches.flatMap((batch) => (batch.status === "fulfilled" ? batch.value : []));
-}
-
-async function fetchImageResults(query, options, engine) {
-  const url = new URL("/search", SEARXNG_BASE_URL);
-  url.searchParams.set("q", imageEngineQuery(query, engine));
-  url.searchParams.set("format", "json");
-  url.searchParams.set("categories", "images");
-  url.searchParams.set("safesearch", String(clampSafeSearch(options.safeSearch)));
-  url.searchParams.set("pageno", "1");
-  if (SEARCH_LANGUAGE && SEARCH_LANGUAGE !== "auto") url.searchParams.set("language", SEARCH_LANGUAGE);
-
-  const response = await fetch(url, { signal: AbortSignal.timeout(SEARCH_TIMEOUT_SECONDS * 1000) });
-  if (!response.ok) throw new Error(`SearXNG image search returned ${response.status}`);
-  const data = await response.json();
-  return (data.results || []).map(normalizeImageItem).filter(Boolean);
-}
-
-function imageEngineQuery(query, engine) {
-  const normalized = String(engine || "").trim().toLowerCase();
-  const shortcut = IMAGE_ENGINE_SHORTCUTS.get(normalized);
-  return shortcut ? `!${shortcut} ${query}` : query;
-}
-
-function parseEngineList(value) {
-  return String(value || "")
-    .split(",")
-    .map((engine) => engine.trim())
-    .filter(Boolean);
-}
-
-function normalizeItem(item, rank) {
-  const url = absoluteUrl(item.url || "");
-  if (!url) return null;
-  const canonicalUrl = canonicalizeUrl(url);
-  const parsed = new URL(canonicalUrl);
-  const domain = parsed.hostname.toLowerCase().replace(/^www\./, "");
-  const title = oneLine(item.title || item.source || domain || canonicalUrl);
-  const snippet = oneLine(item.content || item.snippet || "");
-  const engines = Array.isArray(item.engines) ? item.engines : item.engine ? [item.engine] : [];
-  return {
-    title: title || canonicalUrl,
-    url: canonicalUrl,
-    snippet,
-    kind: "web",
-    source: item.source || engines.join(", ") || null,
-    domain: domain || null,
-    published_date: item.publishedDate || item.published_date || null,
-    score: scoreItem({ item, queryTitle: title, snippet, domain, rank }),
-  };
-}
-
-function normalizeImageItem(item, rank) {
-  const imageUrl = httpUrl(item.img_src || item.image || item.image_url || "");
-  const thumbnailUrl = httpUrl(item.thumbnail || item.thumbnail_src || item.img_src || "");
-  const sourceUrl = httpUrl(item.url || item.source_url || "");
-  if (!imageUrl && !thumbnailUrl) return null;
-
-  const displayUrl = sourceUrl || imageUrl || thumbnailUrl;
-  const parsed = new URL(displayUrl);
-  const domain = parsed.hostname.toLowerCase().replace(/^www\./, "");
-  const engines = Array.isArray(item.engines) ? item.engines : item.engine ? [item.engine] : [];
-  const title = oneLine(item.title || item.source || domain || "Image result");
-
-  return {
-    title: title || "Image result",
-    url: displayUrl,
-    snippet: oneLine(item.content || item.snippet || ""),
-    kind: "image",
-    image_url: imageUrl || thumbnailUrl,
-    thumbnail_url: thumbnailUrl || imageUrl,
-    source_page_url: sourceUrl || null,
-    source: engines.join(", ") || null,
-    domain: domain || null,
-    published_date: null,
-    score: 1.5 + 1 / Math.max(rank + 1, 1),
-  };
+  return oneLine(stripped).replace(/\s*,\s*/g, " ");
 }
 
 export function canonicalizeUrl(url) {
@@ -258,101 +61,156 @@ export function canonicalizeUrl(url) {
   return parsed.toString();
 }
 
-function absoluteUrl(value) {
-  const text = String(value || "").trim();
-  if (!text) return "";
-  try {
-    return new URL(text, SEARXNG_BASE_URL).toString();
-  } catch {
-    return "";
-  }
+function normalizeQuery(value) {
+  return stripAssistantFraming(stripUrls(value)).slice(0, 320);
 }
 
-function httpUrl(value) {
-  const url = absoluteUrl(value);
-  if (!url) return "";
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "http:" || parsed.protocol === "https:" ? url : "";
-  } catch {
-    return "";
-  }
+function normalizeItem(item, index) {
+  const url = absoluteUrl(item.url || "");
+  if (!url) return null;
+
+  const canonicalUrl = canonicalizeUrl(url);
+  const parsed = new URL(canonicalUrl);
+  const domain = parsed.hostname.toLowerCase().replace(/^www\./, "");
+  const engines = Array.isArray(item.engines) ? item.engines : item.engine ? [item.engine] : [];
+  const title = oneLine(item.title || item.source || domain || canonicalUrl);
+  const snippet = oneLine(item.content || item.snippet || "");
+
+  return {
+    title: title || canonicalUrl,
+    url: canonicalUrl,
+    snippet,
+    kind: "web",
+    source: item.source || engines.join(", ") || null,
+    domain: domain || null,
+    published_date: item.publishedDate || item.published_date || null,
+    score: Number(item.score || 0) + engines.length * 0.3 + 1 / Math.max(index + 1, 1),
+  };
 }
 
 function rankAndDedupe(results, query) {
   const merged = new Map();
   for (const result of results) {
-    const existing = merged.get(result.url);
     const score = result.score + overlapScore(query, result);
-    const withScore = { ...result, score: Number(score.toFixed(3)) };
-    if (!existing || withScore.score > existing.score) {
-      merged.set(result.url, withScore);
-    } else if (withScore.snippet && !existing.snippet.includes(withScore.snippet)) {
-      existing.snippet = `${existing.snippet} ${withScore.snippet}`.trim().slice(0, 800);
-    }
+    const existing = merged.get(result.url);
+    if (!existing || score > existing.score) merged.set(result.url, { ...result, score: Number(score.toFixed(3)) });
   }
   return [...merged.values()].sort((a, b) => b.score - a.score);
-}
-
-function dedupeImages(results) {
-  const merged = new Map();
-  for (const result of results) {
-    const key = result.image_url || result.thumbnail_url || result.url;
-    if (!key) continue;
-    const existing = merged.get(key);
-    if (!existing || (result.thumbnail_url && !existing.thumbnail_url) || result.score > existing.score) {
-      merged.set(key, result);
-    }
-  }
-  return [...merged.values()].sort((a, b) => b.score - a.score);
-}
-
-function scoreItem({ item, queryTitle, snippet, domain, rank }) {
-  const engineCount = Array.isArray(item.engines) ? item.engines.length : item.engine ? 1 : 0;
-  const rawScore = Number(item.score || 0);
-  let score = Math.log1p(Math.max(rawScore, 0)) * 1.5 + Math.min(engineCount, 4) * 0.35 + 1 / Math.max(rank + 1, 1);
-  if (item.publishedDate || item.published_date) score += 0.2;
-  if (queryTitle && queryTitle.toLowerCase() === domain.toLowerCase()) score -= 0.6;
-  if (snippet) score += 0.25;
-  return score;
 }
 
 function overlapScore(query, result) {
-  const queryTokens = new Set(importantTokens(query, 24));
-  const haystackTokens = new Set(importantTokens(`${result.title} ${result.snippet} ${result.domain}`, 80));
-  let overlap = 0;
-  for (const token of queryTokens) {
-    if (haystackTokens.has(token)) overlap += 1;
+  const queryTerms = importantTerms(query);
+  if (!queryTerms.length) return 0;
+
+  const haystack = `${result.title} ${result.snippet} ${result.domain}`.toLowerCase();
+  return queryTerms.reduce((score, term) => score + (haystack.includes(term) ? 1 : 0), 0);
+}
+
+function importantTerms(text) {
+  const stop = new Set([
+    "a",
+    "about",
+    "and",
+    "are",
+    "for",
+    "from",
+    "how",
+    "i",
+    "is",
+    "it",
+    "latest",
+    "me",
+    "of",
+    "on",
+    "or",
+    "search",
+    "the",
+    "to",
+    "what",
+    "when",
+    "where",
+    "who",
+    "why",
+  ]);
+  return [...String(text || "").toLowerCase().matchAll(/[a-z0-9][a-z0-9._+-]*/g)]
+    .map((match) => match[0])
+    .filter((term, index, terms) => term.length > 1 && !stop.has(term) && terms.indexOf(term) === index)
+    .slice(0, 16);
+}
+
+function urlMatches(value) {
+  const text = String(value || "");
+  const matches = [];
+
+  for (const match of text.matchAll(EXPLICIT_URL_RE)) {
+    matches.push({ raw: match[0], start: match.index, end: match.index + match[0].length });
   }
-  return overlap * 1.15;
+
+  for (const match of text.matchAll(BARE_DOMAIN_RE)) {
+    const raw = match[1];
+    if (!isBareDomainLikelyUrl(raw)) continue;
+    const start = match.index + match[0].lastIndexOf(raw);
+    const end = start + raw.length;
+    if (!matches.some((existing) => start < existing.end && end > existing.start)) {
+      matches.push({ raw, start, end });
+    }
+  }
+
+  return matches.sort((a, b) => a.start - b.start);
+}
+
+function isBareDomainLikelyUrl(value) {
+  const text = trimUrlCandidate(value);
+  if (text.includes("/") || text.includes(":")) return true;
+  const suffix = text.toLowerCase().split(".").at(-1);
+  return suffix && !NON_URL_SUFFIXES.has(suffix);
+}
+
+function normalizeExtractedUrl(value) {
+  let text = trimUrlCandidate(value);
+  if (!text) return "";
+  if (/^www\./i.test(text)) text = `https://${text}`;
+  if (!/^https?:\/\//i.test(text) && /^[a-z0-9-]+(?:\.[a-z0-9-]+)+/i.test(text)) text = `https://${text}`;
+
+  try {
+    const parsed = new URL(text);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "";
+    return canonicalizeUrl(parsed.toString());
+  } catch {
+    return "";
+  }
+}
+
+function trimUrlCandidate(value) {
+  let text = String(value || "")
+    .trim()
+    .replace(/^[<([{'"`]+/, "");
+
+  while (text && ".,!?;:'\"`>".includes(text.at(-1))) text = text.slice(0, -1);
+  while (text.endsWith(")") && countChar(text, ")") > countChar(text, "(")) text = text.slice(0, -1);
+  while (text.endsWith("]") && countChar(text, "]") > countChar(text, "[")) text = text.slice(0, -1);
+  return text;
+}
+
+function absoluteUrl(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    return ["http:", "https:"].includes(url.protocol) ? url.toString() : "";
+  } catch {
+    return "";
+  }
 }
 
 function stripAssistantFraming(query) {
-  let text = query.trim();
+  let text = oneLine(query);
   text = text.replace(/^(please\s+)?(can you|could you|would you)\s+/i, "");
   text = text.replace(/^(please\s+)?(search|look up|find|google|show me)\s+(for\s+)?/i, "");
   text = text.replace(/^the\s+/i, "");
-  return text.replace(/[?.!]+$/g, "").trim() || query.trim();
+  return text.replace(/[?.!]+$/g, "").trim();
 }
 
-function importantTokens(text, limit) {
-  const tokens = [];
-  for (const match of text.toLowerCase().matchAll(TOKEN_RE)) {
-    const token = match[0];
-    if (STOPWORDS.has(token) || token.length <= 1 || tokens.includes(token)) continue;
-    tokens.push(token);
-    if (tokens.length >= limit) break;
-  }
-  return tokens;
-}
-
-function inferTimeRange(query) {
-  return RECENT_INTENT_RE.test(query) ? "year" : null;
-}
-
-function clampSafeSearch(value) {
-  const raw = value == null ? SEARCH_SAFESEARCH_DEFAULT : Number(value);
-  return Math.max(0, Math.min(2, Number.isFinite(raw) ? raw : SEARCH_SAFESEARCH_DEFAULT));
+function countChar(value, char) {
+  return [...String(value || "")].filter((candidate) => candidate === char).length;
 }
 
 function oneLine(value) {

@@ -1,16 +1,8 @@
 import { useEffect, useRef } from "react";
-import { Globe2, Send, SlidersHorizontal, Square } from "lucide-react";
-import type { Preset } from "@/lib/types";
+import { Globe, Send, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface ComposerBarProps {
@@ -22,9 +14,6 @@ interface ComposerBarProps {
   isStreaming: boolean;
   searchEnabled: boolean;
   onSearchEnabledChange: (value: boolean) => void;
-  presets: Preset[];
-  presetOverride: string | null;
-  onPresetOverrideChange: (id: string | null) => void;
   autoFocus?: boolean;
 }
 
@@ -37,9 +26,6 @@ export default function ComposerBar({
   isStreaming,
   searchEnabled,
   onSearchEnabledChange,
-  presets,
-  presetOverride,
-  onPresetOverrideChange,
   autoFocus,
 }: ComposerBarProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -82,31 +68,13 @@ export default function ComposerBar({
           className="max-h-[168px] min-h-12 resize-none border-0 bg-transparent px-3 py-3 text-[15px] leading-6 shadow-none focus-visible:ring-0"
         />
 
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t px-1 pt-2">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <label className="flex h-8 items-center gap-2 rounded-lg border bg-background/60 px-2.5 text-xs text-muted-foreground">
-              <Globe2 className="size-3.5" />
-              <span>Web search</span>
-              <Switch checked={searchEnabled} onCheckedChange={onSearchEnabledChange} aria-label="Web search" />
-            </label>
-
-            <Select
-              value={presetOverride ?? "auto"}
-              onValueChange={(value) => onPresetOverrideChange(value === "auto" ? null : value)}
-            >
-              <SelectTrigger size="sm" className="max-w-[190px] bg-background/60" aria-label="Response mode">
-                <SlidersHorizontal className="size-3.5" />
-                <SelectValue placeholder="Auto" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="auto">Auto</SelectItem>
-                {presets.map((preset) => (
-                  <SelectItem key={preset.id} value={preset.id}>
-                    {preset.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <div className="flex items-center justify-between gap-2 border-t px-1 pt-2">
+          <div className="flex items-center gap-2">
+          <label className="flex h-8 items-center gap-2 rounded-lg border bg-background/60 px-2.5 text-xs text-muted-foreground">
+            <Globe className="size-3.5" />
+            <span>Web</span>
+            <Switch checked={searchEnabled} onCheckedChange={onSearchEnabledChange} aria-label="Web search" />
+          </label>
           </div>
 
           <Tooltip>

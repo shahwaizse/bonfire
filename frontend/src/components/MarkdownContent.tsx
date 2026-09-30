@@ -12,15 +12,13 @@ type MarkdownNode = {
 };
 
 export default function MarkdownContent({ content, sources = [] }: { content: string; sources?: SearchResultItem[] }) {
-  const webSources = sources.filter((source) => source.kind !== "image");
-
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm, citationPlugin(webSources.length)]}
+      remarkPlugins={[remarkGfm, citationPlugin(sources.length)]}
       components={{
         a({ href, children }) {
           const citation = citationIndex(href);
-          if (citation !== null && webSources[citation]) return <CitationLink source={webSources[citation]} />;
+          if (citation !== null && sources[citation]) return <CitationLink source={sources[citation]} />;
           return (
             <a href={href} target="_blank" rel="noreferrer">
               {children}

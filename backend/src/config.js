@@ -5,7 +5,6 @@ import dotenv from "dotenv";
 const __filename = fileURLToPath(import.meta.url);
 export const SRC_DIR = path.dirname(__filename);
 export const BACKEND_DIR = path.resolve(SRC_DIR, "..");
-export const ROOT_DIR = path.resolve(BACKEND_DIR, "..");
 
 dotenv.config({ path: path.join(BACKEND_DIR, ".env"), quiet: true });
 
@@ -17,37 +16,38 @@ function numberFromEnv(name, fallback) {
 }
 
 function resolveBackendPath(value) {
-  if (path.isAbsolute(value)) return value;
-  return path.resolve(BACKEND_DIR, value);
+  return path.isAbsolute(value) ? value : path.resolve(BACKEND_DIR, value);
 }
 
 export const HOST = process.env.HOST || "127.0.0.1";
 export const PORT = numberFromEnv("PORT", 8000);
-export const LLAMA_BASE_URL = process.env.LLAMA_BASE_URL || "http://127.0.0.1:8080";
-export const SEARXNG_BASE_URL = process.env.SEARXNG_BASE_URL || "http://127.0.0.1:8888";
+export const LLAMA_BASE_URL = process.env.LLAMA_BASE_URL || "http://127.0.0.1:8082";
 export const DATABASE_PATH = resolveBackendPath(process.env.DATABASE_PATH || "./data/app.db");
+export const SEARCH_USAGE_PATH = resolveBackendPath(process.env.SEARCH_USAGE_PATH || path.join(path.dirname(DATABASE_PATH), "search-usage.db"));
+export const TAVILY_API_KEY = process.env.TAVILY_API_KEY || "";
+export const BRAVE_SEARCH_API_KEY = process.env.BRAVE_SEARCH_API_KEY || "";
+export const TAVILY_FREE_ONLY_CONFIRMED = process.env.TAVILY_FREE_ONLY_CONFIRMED === "true";
+export const BRAVE_FREE_ONLY_CONFIRMED = process.env.BRAVE_FREE_ONLY_CONFIRMED === "true";
+// These are upper bounds, not a substitute for provider-side billing restrictions.
+export const TAVILY_MONTHLY_LIMIT = Math.max(0, Math.min(1000, Math.floor(numberFromEnv("TAVILY_MONTHLY_LIMIT", 1000))));
+export const BRAVE_MONTHLY_LIMIT = Math.max(0, Math.min(1000, Math.floor(numberFromEnv("BRAVE_MONTHLY_LIMIT", 1000))));
 
 export const CORS_ORIGINS = (process.env.CORS_ORIGINS || "http://127.0.0.1:3000,http://localhost:3000")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-export const MAX_SEARCH_RESULTS = numberFromEnv("MAX_SEARCH_RESULTS", 5);
-export const MAX_PAGES_TO_READ = numberFromEnv("MAX_PAGES_TO_READ", 3);
-export const PAGE_EXCERPT_CHARS = numberFromEnv("PAGE_EXCERPT_CHARS", 6000);
-export const MAX_HISTORY_CHARS = numberFromEnv("MAX_HISTORY_CHARS", 12000);
-export const SEARCH_TIMEOUT_SECONDS = numberFromEnv("SEARCH_TIMEOUT_SECONDS", 15);
-export const SEARCH_QUERY_VARIANTS = numberFromEnv("SEARCH_QUERY_VARIANTS", 3);
+export const MAX_HISTORY_CHARS = numberFromEnv("MAX_HISTORY_CHARS", 10000);
+export const MAX_SEARCH_RESULTS = numberFromEnv("MAX_SEARCH_RESULTS", 4);
+export const MAX_PAGES_TO_READ = numberFromEnv("MAX_PAGES_TO_READ", 2);
+export const MAX_DIRECT_URLS = numberFromEnv("MAX_DIRECT_URLS", 3);
+export const PAGE_EXCERPT_CHARS = numberFromEnv("PAGE_EXCERPT_CHARS", 4500);
+export const SEARCH_TIMEOUT_SECONDS = numberFromEnv("SEARCH_TIMEOUT_SECONDS", 10);
 export const SEARCH_SAFESEARCH_DEFAULT = numberFromEnv("SEARCH_SAFESEARCH_DEFAULT", 0);
 export const SEARCH_LANGUAGE = process.env.SEARCH_LANGUAGE || "auto";
-export const SEARCH_IMAGE_RESULTS = numberFromEnv("SEARCH_IMAGE_RESULTS", 8);
-export const SEARCH_IMAGE_ENGINES = process.env.SEARCH_IMAGE_ENGINES || "google images";
-export const SEARCH_IMAGE_FALLBACK_ENGINES =
-  process.env.SEARCH_IMAGE_FALLBACK_ENGINES || "duckduckgo images,bing images,pexels,unsplash,pinterest";
 
-export const LLM_TEMPERATURE = numberFromEnv("LLM_TEMPERATURE", 0.72);
-export const LLM_TOP_P = numberFromEnv("LLM_TOP_P", 0.92);
-export const LLM_MIN_P = numberFromEnv("LLM_MIN_P", 0.04);
-export const LLM_REPEAT_PENALTY = numberFromEnv("LLM_REPEAT_PENALTY", 1.08);
-export const LLM_MAX_TOKENS = numberFromEnv("LLM_MAX_TOKENS", 4096);
-export const DEFAULT_GUARDRAILS = process.env.DEFAULT_GUARDRAILS || "";
+export const LLM_TEMPERATURE = numberFromEnv("LLM_TEMPERATURE", 0.1);
+export const LLM_TOP_P = numberFromEnv("LLM_TOP_P", 1);
+export const LLM_MIN_P = numberFromEnv("LLM_MIN_P", 0);
+export const LLM_REPEAT_PENALTY = numberFromEnv("LLM_REPEAT_PENALTY", 1);
+export const LLM_MAX_TOKENS = numberFromEnv("LLM_MAX_TOKENS", 2048);

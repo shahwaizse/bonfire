@@ -2,16 +2,10 @@ import { expect, test } from "@playwright/test";
 
 const BACKEND_URL = process.env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
 
-test.beforeEach(async ({ request }) => {
-  await request.put(`${BACKEND_URL}/settings`, {
-    data: { prompt_mode: "auto", guardrails: "", search_default: false },
-  });
-});
-
 test("loads to the empty state with a focused composer", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByPlaceholder("Ask anything...")).toBeVisible();
-  await expect(page.getByText("Sic parvis magna")).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Bonfire', exact: true })).toBeVisible();
 });
 
 test("llama.cpp status indicator goes green", async ({ page }) => {
@@ -42,7 +36,6 @@ test("does not force-scroll to the bottom when a long answer arrives", async ({ 
   await page.route(`${BACKEND_URL}/chat`, async (route) => {
     const events = [
       { type: "conversation", data: { conversation_id: "playwright-scroll-chat", title: "Scroll test" } },
-      { type: "preset", data: { id: "general", name: "General" } },
       { type: "status", data: "Generating answer..." },
       { type: "token", data: longAnswer },
       { type: "done", data: { conversation_id: "playwright-scroll-chat" } },
@@ -69,7 +62,6 @@ test("renders source citations and source rows with favicons", async ({ page }) 
   await page.route(`${BACKEND_URL}/chat`, async (route) => {
     const events = [
       { type: "conversation", data: { conversation_id: "favicon-source-chat", title: "Source favicon" } },
-      { type: "preset", data: { id: "general", name: "General" } },
       {
         type: "search_results",
         data: [

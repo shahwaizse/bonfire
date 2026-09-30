@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bonfire — tiny GPU, big feelings</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#0e0c14;color:#f3effa;font:15px system-ui,sans-serif;display:grid;min-height:100vh;place-content:center;padding:24px;gap:16px}canvas{width:min(1280px,95vw);height:auto;border-radius:8px;box-shadow:0 18px 80px #0006}nav{display:flex;align-items:center;gap:12px;flex-wrap:wrap}button,a{background:#c39af3;color:#0e0c14;border:0;border-radius:6px;padding:10px 16px;font:inherit;font-weight:700;cursor:pointer;text-decoration:none}input{flex:1;accent-color:#a47bd6}small{color:#a69ab7}button:focus-visible,a:focus-visible{outline:3px solid #a47bd6;outline-offset:3px}
+</style>
+<canvas id="film" width="1280" height="720" aria-label="Bonfire motion graphics film"></canvas>
+<nav><button id="play">Pause</button><button id="again">Replay</button><input id="seek" aria-label="Video timeline" type="range" min="0" max="24" step="0.01"><small id="clock">0:00 / 0:24</small><a href="../docs/bonfire-intro.mp4">Watch export with sound</a></nav>
+<small>All graphics are drawn in code. The exported MP4 includes a procedurally synthesized soundtrack.</small>
+<script src="film.js?v=2"></script>
+</html>

@@ -1,0 +1,5 @@
+{
+  "dolphin": {"label":"Dolphin3.0 Llama3.1 8B Q4_K_M (tool template)", "file":"Dolphin3.0-Llama3.1-8B-Q4_K_M.gguf", "storage":"repo", "thinking":false, "template":"chatml-tools.jinja"},
+  "qwen": {"label":"Qwen3.5 9B Q4_K_M", "file":"Qwen3.5-9B-Q4_K_M.gguf", "storage":"external", "thinking":false, "repo":"unsloth/Qwen3.5-9B-GGUF", "revision":"3885219b6810b007914f3a7950a8d1b469d598a5", "bytes":5680522464, "sha256":"03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8"},
+  "gemma": {"label":"Gemma 4 E4B Instruct Q4_K_M", "file":"gemma-4-E4B-it-Q4_K_M.gguf", "storage":"external", "thinking":false, "repo":"unsloth/gemma-4-E4B-it-GGUF", "revision":"bfc15c382204943c3a8fff0c750b94ae2364d7a3", "bytes":4977171584, "sha256":"85a896a047553e842f25297ee5b031d64ff30147d9c4af17b1e4b394cd1fab87"}
+}

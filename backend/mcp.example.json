@@ -1,0 +1,11 @@
+{
+  "servers": [
+    {
+      "name": "workspace",
+      "command": "node",
+      "args": ["src/mcp-workspace.js"],
+      "env": { "BONFIRE_MCP_ROOT": "D:/Projects/bonfire-mcp" },
+      "allowTools": ["list_files", "read_file"]
+    }
+  ]
+}

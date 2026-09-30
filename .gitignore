@@ -1,5 +1,7 @@
 # Models (large binaries)
 models/*.gguf
+models/*.gguf.part
+backend/bench/results/
 
 # llama.cpp (cloned source + build output)
 vendor/llama.cpp/
@@ -7,12 +9,15 @@ vendor/llama.cpp/
 # Backend
 backend/.venv/
 backend/.env
+backend/mcp.json
 backend/data/
 backend/__pycache__/
 backend/**/__pycache__/
 backend/*.log
 backend/backend_stdout.log
 backend/backend_stderr.log
+backend/backend_route_test_stdout.log
+backend/backend_route_test_stderr.log
 backend/.pytest_cache/
 
 # Frontend
@@ -22,6 +27,8 @@ frontend/.next/
 frontend/.env.local
 frontend/frontend_dev.log
 frontend/frontend_dev_err.log
+frontend/frontend_stdout.log
+frontend/frontend_stderr.log
 frontend/playwright-report/
 frontend/test-results/
 frontend/tsconfig.tsbuildinfo
@@ -38,3 +45,7 @@ backend/node_modules/
 
 # Local test caches
 .pytest_cache/
+
+# Removed/experimental integrations
+.whatsapp-auth*/
+scripts/whatsapp/

@@ -6,14 +6,18 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "bench:tools": "node bench/run.js",
+    "bench:report": "node bench/report.js",
+    "bench:test": "node --test bench/harness.test.js"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "ajv": "^8.20.0",
     "better-sqlite3": "^12.5.0",
     "cheerio": "^1.1.2",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1"
-  },
-  "devDependencies": {}
+  }
 }

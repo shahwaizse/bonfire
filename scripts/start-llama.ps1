@@ -1,5 +1,5 @@
 <#
-Starts the llama.cpp server with Vulkan GPU offload on 127.0.0.1:8080.
+Starts Qwen with Vulkan GPU offload on 127.0.0.1:8082.
 #>
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
@@ -14,7 +14,7 @@ if (-not (Test-Path $serverExe)) {
     exit 1
 }
 
-$modelPath = Join-Path $root "models\Dolphin3.0-Llama3.1-8B-Q4_K_M.gguf"
+. (Join-Path $PSScriptRoot 'model-settings.ps1')
 if (-not (Test-Path $modelPath)) {
     Write-Error "Model not found at $modelPath"
     exit 1
@@ -29,9 +29,10 @@ Write-Host "Starting llama-server: $serverExe"
 Write-Host "Model: $modelPath"
 Write-Host "Context size: $ctxSize | GPU layers: $gpuLayers"
 
-& $serverExe `
-    --model $modelPath `
-    --host 127.0.0.1 `
-    --port 8080 `
-    --ctx-size $ctxSize `
-    --n-gpu-layers $gpuLayers
+$previousOptions = $env:LLAMA_ARG_CHAT_TEMPLATE_KWARGS
+try {
+    $env:LLAMA_ARG_CHAT_TEMPLATE_KWARGS = '{"enable_thinking":false}'
+    # Direct invocation needs an unquoted path; Start-Process uses the quoted form.
+    $modelArgs[1] = $modelPath
+    & $serverExe @modelArgs
+} finally { $env:LLAMA_ARG_CHAT_TEMPLATE_KWARGS = $previousOptions }

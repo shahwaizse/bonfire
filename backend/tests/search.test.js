@@ -1,76 +1,47 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canonicalizeUrl, queryVariants, search } from "../src/search.js";
-
-test("queryVariants strips assistant phrasing and adds a compact variant", () => {
-  const variants = queryVariants("please look up the latest llama.cpp Vulkan performance news", 3);
-  assert.equal(variants[0], "latest llama.cpp Vulkan performance news");
-  assert.ok(variants.some((variant) => variant.includes("llama.cpp vulkan performance")));
-});
+import { canonicalizeUrl, extractHttpUrls, search, stripUrls } from "../src/search.js";
 
 test("canonicalizeUrl drops tracking parameters and fragments", () => {
   const url = canonicalizeUrl("https://Example.com/story/?utm_source=x&keep=1&fbclid=abc#section");
   assert.equal(url, "https://example.com/story?keep=1");
 });
 
-test("search tries Google Images safe-search-off and falls back to working image engines", async () => {
-  const originalFetch = globalThis.fetch;
+test("extractHttpUrls handles direct links with wrappers and trailing punctuation", () => {
+  const urls = extractHttpUrls(
+    'Read [this](https://Example.com/story/?utm_source=x&keep=1#frag), then https://en.wikipedia.org/wiki/Test_(assessment). Also www.example.org/path.'
+  );
+
+  assert.deepEqual(urls, [
+    "https://example.com/story?keep=1",
+    "https://en.wikipedia.org/wiki/Test_(assessment)",
+    "https://www.example.org/path",
+  ]);
+});
+
+test("stripUrls removes direct links before query generation", () => {
+  assert.equal(stripUrls("summarize https://example.com/story?utm_source=x please"), "summarize please");
+  assert.equal(stripUrls("Read [the article](https://example.com/story), then explain it."), "Read the article then explain it.");
+});
+
+test("search normalizes the query and hosted provider results", async () => {
   const calls = [];
-  globalThis.fetch = async (rawUrl) => {
-    const url = new URL(String(rawUrl));
-    calls.push(url);
-    const category = url.searchParams.get("categories");
-    const q = url.searchParams.get("q") || "";
-    let body;
-
-    if (category === "images" && q.startsWith("!goi ")) {
-      body = { results: [], unresponsive_engines: [["google images", "Suspended: access denied"]] };
-    } else if (category === "images") {
-      body = {
-        results: [
-          {
-            title: "Bonfire photo",
-            url: "https://images.example.com/page",
-            img_src: "https://cdn.example.com/bonfire.jpg",
-            thumbnail_src: "https://cdn.example.com/bonfire-thumb.jpg",
-            engine: "duckduckgo images",
-          },
-        ],
-      };
-    } else {
-      body = {
-        results: [
-          {
-            title: "Bonfire article",
-            url: "https://example.com/bonfire?utm_source=test",
-            content: "A useful web source.",
-            engine: "google",
-          },
-        ],
-      };
-    }
-
-    return new Response(JSON.stringify(body), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
+  const searchProvider = async (query, count) => {
+    calls.push({ query, count });
+    return [
+      {
+        title: "Bonfire article",
+        url: "https://Example.com/bonfire?utm_source=test#top",
+        content: "A useful web source.",
+        source: "Tavily",
+      },
+    ];
   };
-
-  try {
-    const results = await search("show me bonfire images", 3, {
-      variantCount: 1,
-      imageResults: 1,
-      imageEngines: "google images",
-    });
-
-    assert.equal(calls.some((url) => url.searchParams.get("categories") === "general"), true);
-    assert.equal(calls.some((url) => url.searchParams.get("categories") === "images"), true);
-    assert.equal(calls.every((url) => url.searchParams.get("safesearch") === "0"), true);
-    assert.equal(calls.some((url) => url.searchParams.get("q")?.startsWith("!goi ")), true);
-    assert.equal(calls.some((url) => url.searchParams.get("q")?.startsWith("!ddi ")), true);
-    assert.equal(results.some((result) => result.kind === "web"), true);
-    assert.equal(results.some((result) => result.kind === "image" && result.thumbnail_url), true);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  const results = await search("please look up the latest bonfire news", 3, searchProvider);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].query, "latest bonfire news");
+  assert.equal(calls[0].count, 3);
+  assert.equal(results[0].url, "https://example.com/bonfire");
+  assert.equal(results[0].kind, "web");
+  assert.equal(results[0].source, "Tavily");
 });

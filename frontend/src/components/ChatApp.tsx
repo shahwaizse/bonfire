@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowDown, Menu } from "lucide-react";
 import Sidebar from "./Sidebar";
 import MessageBubble from "./MessageBubble";
@@ -14,19 +14,11 @@ import {
 } from "@/components/ui/message-scroller";
 import {
   checkHealth,
-  createPreset,
   deleteConversation,
-  deletePreset,
   fetchConversation,
   fetchConversations,
-  fetchPresets,
-  fetchSettings,
-  setFunnelEnabled as setFunnelEnabledApi,
-  shutdownBonfire,
   streamChat,
   updateConversation,
-  updatePreset,
-  updateSettings,
 } from "@/lib/api";
 import type {
   ActivityEvent,
@@ -34,14 +26,11 @@ import type {
   ConversationOut,
   DisplayMessage,
   PageReadResult,
-  Preset,
   SearchResultItem,
-  Settings,
 } from "@/lib/types";
 
-const sidebarStorageKey = "bonfire-sidebar-collapsed";
-const modelName = "Dolphin 3.0 Llama 3.1 8B";
-const SettingsPanel = lazy(() => import("./SettingsPanel"));
+const searchStorageKey = "bonfire-web-search";
+const modelName = "Qwen3.5-9B · Local";
 
 function activityId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -72,22 +61,14 @@ export default function ChatApp() {
   const [searchEnabled, setSearchEnabled] = useState(false);
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [llamaOnline, setLlamaOnline] = useState<boolean | null>(null);
-  const [presets, setPresets] = useState<Preset[]>([]);
-  const [presetOverride, setPresetOverride] = useState<string | null>(null);
-  const [settings, setSettings] = useState<Settings | null>(null);
   const [generatingIds, setGeneratingIds] = useState<Set<string>>(() => new Set());
   const activeIdRef = useRef<string | null>(null);
   const streamConversationIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const stopRequestedRef = useRef(false);
   const manualTitlesRef = useRef<Map<string, string>>(new Map());
-
-  const presetNameById = (id: string | null | undefined) =>
-    presets.find((preset) => preset.id === id)?.name ?? (id ? id[0].toUpperCase() + id.slice(1) : undefined);
 
   const pushActivity = (event: ActivityEvent) => {
     setActivity((current) => [...current.slice(-5), event]);
@@ -111,28 +92,13 @@ export default function ChatApp() {
     setConversations((current) => [conversation, ...current.filter((item) => item.id !== conversation.id)]);
   };
 
-  const updateConversationTitle = (id: string, title: string) => {
-    if (manualTitlesRef.current.has(id)) return;
-    setConversations((current) =>
-      current.map((conversation) => (conversation.id === id ? { ...conversation, title } : conversation))
-    );
-  };
-
-  const refreshPresets = async () => {
-    try {
-      setPresets(await fetchPresets());
-    } catch {
-      // Best effort.
-    }
-  };
-
   useEffect(() => {
-    setSidebarCollapsed(localStorage.getItem(sidebarStorageKey) === "true");
+    setSearchEnabled(localStorage.getItem(searchStorageKey) === "true");
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(sidebarStorageKey, String(sidebarCollapsed));
-  }, [sidebarCollapsed]);
+    localStorage.setItem(searchStorageKey, String(searchEnabled));
+  }, [searchEnabled]);
 
   useEffect(() => {
     let ignore = false;
@@ -147,19 +113,12 @@ export default function ChatApp() {
         });
     };
 
-    fetchConversations().then((list) => !ignore && setConversations(list)).catch(() => {});
-    fetchPresets().then((list) => !ignore && setPresets(list)).catch(() => {});
-    fetchSettings()
-      .then((nextSettings) => {
-        if (!ignore) {
-          setSettings(nextSettings);
-          setSearchEnabled(nextSettings.search_default);
-        }
-      })
+    fetchConversations()
+      .then((list) => !ignore && setConversations(list))
       .catch(() => {});
     pollHealth();
-    const interval = window.setInterval(pollHealth, 15000);
 
+    const interval = window.setInterval(pollHealth, 15000);
     return () => {
       ignore = true;
       window.clearInterval(interval);
@@ -179,7 +138,8 @@ export default function ChatApp() {
         role: message.role as "user" | "assistant",
         content: message.content,
         sources: message.sources ?? undefined,
-        presetName: message.role === "assistant" ? presetNameById(message.preset_id) : undefined,
+        toolActivity: message.tool_activity ?? undefined,
+        images: message.images ?? undefined,
       }));
     setMessages(loaded);
   };
@@ -219,54 +179,6 @@ export default function ChatApp() {
     }
   };
 
-  const handleMoveConversation = async (id: string, folder: string) => {
-    setConversations((current) =>
-      current.map((conversation) => (conversation.id === id ? { ...conversation, folder } : conversation))
-    );
-    try {
-      await updateConversation(id, { folder });
-      refreshConversations();
-    } catch {
-      refreshConversations();
-    }
-  };
-
-  const handleUpdateSettings = async (patch: Partial<Settings>) => {
-    setSettings((previous) => (previous ? { ...previous, ...patch } : previous));
-    try {
-      setSettings(await updateSettings(patch));
-    } catch {
-      // Best effort.
-    }
-  };
-
-  const handleSetFunnelEnabled = async (enabled: boolean) => {
-    const previous = settings;
-    setSettings((current) => (current ? { ...current, funnel_enabled: enabled } : current));
-    try {
-      setSettings(await setFunnelEnabledApi(enabled));
-    } catch (error) {
-      setSettings(previous);
-      throw error;
-    }
-  };
-
-  const handleSavePreset = async (id: string, patch: Partial<Preset>) => {
-    await updatePreset(id, patch).catch(() => {});
-    refreshPresets();
-  };
-
-  const handleCreatePreset = async (draft: { name: string; description: string; system_prompt: string }) => {
-    await createPreset({ ...draft, keywords: [] }).catch(() => {});
-    refreshPresets();
-  };
-
-  const handleDeletePreset = async (id: string) => {
-    await deletePreset(id).catch(() => {});
-    if (presetOverride === id) setPresetOverride(null);
-    refreshPresets();
-  };
-
   const updateLastAssistant = (patch: Partial<DisplayMessage> | ((message: DisplayMessage) => DisplayMessage)) => {
     if (activeIdRef.current !== streamConversationIdRef.current) return;
     setMessages((current) => {
@@ -296,10 +208,8 @@ export default function ChatApp() {
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
     streamConversationIdRef.current = activeId;
-    if (activeId) {
-      setGeneratingIds((current) => new Set(current).add(activeId));
-    }
-    setActivity([makeActivity("route", "Preparing request")]);
+    if (activeId) setGeneratingIds((current) => new Set(current).add(activeId));
+    setActivity([makeActivity("generate", "Preparing request")]);
 
     const userMessage: DisplayMessage = { id: `local-user-${Date.now()}`, role: "user", content: text };
     const assistantMessage: DisplayMessage = { id: `local-assistant-${Date.now()}`, role: "assistant", content: "" };
@@ -310,7 +220,6 @@ export default function ChatApp() {
         conversationId: activeId,
         message: text,
         searchEnabled,
-        presetId: presetOverride,
         signal: abortController.signal,
       })) {
         switch (event.type) {
@@ -318,7 +227,6 @@ export default function ChatApp() {
             upsertConversation({
               id: event.data.conversation_id,
               title: event.data.title || "New chat",
-              folder: "",
               created_at: nowIso(),
               updated_at: nowIso(),
             });
@@ -329,13 +237,6 @@ export default function ChatApp() {
             }
             streamConversationIdRef.current = event.data.conversation_id;
             break;
-          case "conversation_title":
-            updateConversationTitle(event.data.conversation_id, event.data.title);
-            break;
-          case "preset":
-            pushActivity(makeActivity("route", `Using ${event.data.name}`, "Prompt selected"));
-            updateLastAssistant({ presetName: event.data.name });
-            break;
           case "status":
             pushActivity(activityFromStatus(event.data));
             break;
@@ -343,11 +244,23 @@ export default function ChatApp() {
             addSourcesToLastAssistant(event.data);
             pushActivity(makeActivity("result", `Found ${event.data.length} sources`, event.data[0]?.title));
             break;
+          case 'image_results':
+            updateLastAssistant({ images: event.data });
+            pushActivity(makeActivity('result', event.data.length ? `Found ${event.data.length} pictures` : 'No pictures found'));
+            break;
           case "page_read":
             handlePageRead(event.data);
             break;
           case "token":
             updateLastAssistant((message) => ({ ...message, content: message.content + event.data }));
+            break;
+          case 'tool_call':
+            updateLastAssistant((message) => ({ ...message, toolActivity: [...(message.toolActivity || []), event] }));
+            pushActivity(makeActivity('read', `Using ${event.data.name.replace('__', ' / ')}`, JSON.stringify(event.data.arguments)));
+            break;
+          case 'tool_result':
+            updateLastAssistant((message) => ({ ...message, toolActivity: [...(message.toolActivity || []), event] }));
+            pushActivity(makeActivity(event.data.isError ? 'error' : 'result', event.data.isError ? `Tool failed: ${event.data.name}` : `Finished ${event.data.name.replace('__', ' / ')}`, event.data.summary));
             break;
           case "error":
             pushActivity(makeActivity("error", event.data));
@@ -406,18 +319,11 @@ export default function ChatApp() {
         onNewChat={handleNewChat}
         onDelete={handleDeleteConversation}
         onRename={handleRenameConversation}
-        onMoveToFolder={handleMoveConversation}
         mobileOpen={sidebarOpen}
         onCloseMobile={() => setSidebarOpen(false)}
-        collapsed={sidebarCollapsed}
-        onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
         llamaOnline={llamaOnline}
         modelName={modelName}
         generatingIds={generatingIds}
-        onOpenSettings={() => {
-          setSidebarOpen(false);
-          setSettingsOpen(true);
-        }}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -436,7 +342,7 @@ export default function ChatApp() {
         {messages.length === 0 ? (
           <main className="flex min-h-0 flex-1 flex-col items-center justify-center px-3 py-8 pb-[calc(env(safe-area-inset-bottom)+2rem)] sm:pb-8">
             <div className="mb-6 flex w-full max-w-[780px] flex-col items-center text-center">
-              <h1 className="text-2xl font-semibold sm:text-3xl">Sic parvis magna</h1>
+              <h1 className="text-2xl font-semibold sm:text-3xl">Bonfire</h1>
             </div>
             <ComposerBar
               value={input}
@@ -447,37 +353,34 @@ export default function ChatApp() {
               isStreaming={isStreaming}
               searchEnabled={searchEnabled}
               onSearchEnabledChange={setSearchEnabled}
-              presets={presets}
-              presetOverride={presetOverride}
-              onPresetOverrideChange={setPresetOverride}
               autoFocus
             />
           </main>
         ) : (
           <>
             <main className="flex min-h-0 flex-1 flex-col" aria-label="Messages">
-            <MessageScrollerProvider>
-              <MessageScroller className="flex-1">
-                <MessageScrollerViewport data-testid="message-viewport">
-                  <MessageScrollerContent className="mx-auto w-full max-w-[840px] gap-5 px-3 pb-5 pt-[calc(env(safe-area-inset-top)+4.25rem)] sm:px-6 sm:pt-5">
-                    {messages.map((message, index) => (
-                      <MessageScrollerItem key={message.id}>
-                        <MessageBubble
-                          message={message}
-                          active={isStreaming && index === messages.length - 1 && message.role === "assistant"}
-                          activity={activity}
-                        />
-                      </MessageScrollerItem>
-                    ))}
-                    <MessageScrollerItem scrollAnchor />
-                  </MessageScrollerContent>
-                </MessageScrollerViewport>
-                <MessageScrollerButton size="sm" className="gap-1.5 shadow-lg">
-                  <ArrowDown className="size-4" />
-                  <span className="ml-1 text-xs">Jump to latest</span>
-                </MessageScrollerButton>
-              </MessageScroller>
-            </MessageScrollerProvider>
+              <MessageScrollerProvider>
+                <MessageScroller className="flex-1">
+                  <MessageScrollerViewport data-testid="message-viewport">
+                    <MessageScrollerContent className="mx-auto w-full max-w-[840px] gap-5 px-3 pb-5 pt-[calc(env(safe-area-inset-top)+4.25rem)] sm:px-6 sm:pt-5">
+                      {messages.map((message, index) => (
+                        <MessageScrollerItem key={message.id}>
+                          <MessageBubble
+                            message={message}
+                            active={isStreaming && index === messages.length - 1 && message.role === "assistant"}
+                            activity={activity}
+                          />
+                        </MessageScrollerItem>
+                      ))}
+                      <MessageScrollerItem scrollAnchor />
+                    </MessageScrollerContent>
+                  </MessageScrollerViewport>
+                  <MessageScrollerButton size="sm" className="gap-1.5 shadow-lg">
+                    <ArrowDown className="size-4" />
+                    <span className="ml-1 text-xs">Jump to latest</span>
+                  </MessageScrollerButton>
+                </MessageScroller>
+              </MessageScrollerProvider>
             </main>
             <footer className="flex-none border-t bg-background/78 px-0 py-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] backdrop-blur-xl sm:pb-3">
               <ComposerBar
@@ -489,36 +392,11 @@ export default function ChatApp() {
                 isStreaming={isStreaming}
                 searchEnabled={searchEnabled}
                 onSearchEnabledChange={setSearchEnabled}
-                presets={presets}
-                presetOverride={presetOverride}
-                onPresetOverrideChange={setPresetOverride}
               />
             </footer>
           </>
         )}
       </div>
-
-      {settingsOpen && (
-        <Suspense fallback={null}>
-          <SettingsPanel
-            open={settingsOpen}
-            onClose={() => setSettingsOpen(false)}
-            llamaOnline={llamaOnline}
-            settings={settings}
-            onUpdateSettings={handleUpdateSettings}
-            onSetFunnelEnabled={handleSetFunnelEnabled}
-            onShutdown={shutdownBonfire}
-            onClearAllChats={() => {
-              handleNewChat();
-              refreshConversations();
-            }}
-            presets={presets}
-            onSavePreset={handleSavePreset}
-            onCreatePreset={handleCreatePreset}
-            onDeletePreset={handleDeletePreset}
-          />
-        </Suspense>
-      )}
     </div>
   );
 }

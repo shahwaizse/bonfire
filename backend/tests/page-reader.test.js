@@ -32,10 +32,44 @@ test("readPage prefers article text and strips boilerplate", async () => {
   try {
     const page = await readPage("https://example.com/useful");
     assert.equal(page.title, "Useful Article");
+    assert.equal(page.requested_url, "https://example.com/useful");
     assert.match(page.excerpt, /compact summary/);
     assert.match(page.excerpt, /useful evidence/);
     assert.doesNotMatch(page.excerpt, /Related clickbait/);
     assert.doesNotMatch(page.excerpt, /Privacy Terms/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("readPage parses HTML even when content-type is missing", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response("<!doctype html><html><head><title>No Type</title></head><body><main><p>Visible article text survives.</p></main></body></html>", {
+      status: 200,
+    });
+
+  try {
+    const page = await readPage("https://example.com/no-type");
+    assert.equal(page.title, "No Type");
+    assert.match(page.excerpt, /Visible article text/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("readPage reports unsupported binary responses without dumping bytes", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response("not really an image", {
+      status: 200,
+      headers: { "content-type": "image/png" },
+    });
+
+  try {
+    const page = await readPage("https://example.com/image.png");
+    assert.match(page.excerpt, /can only extract text/);
+    assert.equal(page.requested_url, "https://example.com/image.png");
   } finally {
     globalThis.fetch = originalFetch;
   }
