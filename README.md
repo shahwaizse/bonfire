@@ -19,7 +19,7 @@ Bonfire is my playground for learning **edge computing, self-hosting LLMs, and g
 - Lets the agent call **image search** and display an inline gallery. No Images mode; ask naturally.
 - Includes a repeatable local model bake-off and a separate search-routing experiment.
 
-![Bonfire chat UI](docs/bonfire-new-chat-desktop.png)
+![Bonfire's current little-guys sidebar and FilePal chat](docs/bonfire-new-chat-desktop.png)
 
 ## The stack
 
