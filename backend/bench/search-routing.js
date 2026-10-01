@@ -3,6 +3,9 @@ import { AppTools } from '../src/app-tools.js';
 import { mcpRegistry } from '../src/mcp.js';
 import { runToolLoop } from '../src/tool-loop.js';
 import { buildChatMessages } from '../src/prompting.js';
+import { LLM_MODEL_NAME } from '../src/config.js';
+const repetitionCount = Math.max(1, Math.min(3, Number(process.argv[2] || 2)));
+const outputPath = process.argv[3] || 'bench/results/search-routing.json';
 
 const cases = [
   { id: 'latest-anthropic', message: "what's Anthropic's latest model?", expected: 'search_web', query: /anthropic|claude/i },
@@ -28,10 +31,11 @@ const cases = [
   { id: 'supplied-url', message: 'Read https://modelcontextprotocol.io/introduction and summarize it.', expected: 'read_webpage' },
   { id: 'filesystem', message: 'List the files in the shared workspace.', expected: 'workspace__list_files' },
 ];
-const mcpCatalog = await mcpRegistry.catalog();
+// Keep this experiment's catalog comparable and exclude desktop side-effect tools.
+const mcpCatalog = (await mcpRegistry.catalog()).filter(tool => tool.function.name.startsWith('workspace__'));
 const results = [];
 try {
-  for (let repetition = 1; repetition <= 2; repetition++) {
+  for (let repetition = 1; repetition <= repetitionCount; repetition++) {
     for (const item of cases) {
       const events = [];
       const registry = new AppTools({ webEnabled: true,
@@ -53,7 +57,7 @@ try {
         (!item.query || matched.some(call => item.query.test(call.arguments.query || ''))) &&
         !calls.some(call => item.expected === 'search_web' && call.name === 'search_images' || item.expected === 'search_images' && call.name === 'search_web'));
       results.push({ id: item.id, repetition, expected: item.expected, passed, seconds: (performance.now() - start) / 1000, calls, answer, error });
-      console.log(`${repetition}/2 ${item.id}: ${passed ? 'PASS' : 'FAIL'} (${calls.map(call => call.name).join(', ') || 'no tools'})`);
+      console.log(`${repetition}/${repetitionCount} ${item.id}: ${passed ? 'PASS' : 'FAIL'} (${calls.map(call => call.name).join(', ') || 'no tools'})`);
     }
   }
 } finally { await mcpRegistry.close(); }
@@ -62,5 +66,5 @@ const groups = ['search_web', 'search_images', 'none', 'read_webpage', 'workspac
   const rows = results.filter(result => result.expected === expected);
   return { expected, passes: rows.filter(result => result.passed).length, total: rows.length };
 });
-await fs.writeFile('bench/results/search-routing.json', JSON.stringify({ date: new Date().toISOString(), runtime: 'real Qwen inference/native tools; deterministic provider fixtures; no paid API requests', groups, results }, null, 2));
+await fs.writeFile(outputPath, JSON.stringify({ date: new Date().toISOString(), runtime: `real ${LLM_MODEL_NAME} inference/native tools; deterministic provider fixtures; no paid API requests`, groups, results }, null, 2));
 console.log(JSON.stringify(groups));

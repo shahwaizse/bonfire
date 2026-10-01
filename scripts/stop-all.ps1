@@ -18,7 +18,12 @@ Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyC
 
 Write-Host "Killing Bonfire backend (node)..."
 Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like "*$root*" -and ($_.CommandLine -like "*backend*src*index.js*" -or $_.CommandLine -like "*backend*src*mcp-workspace.js*") } |
+    Where-Object { $_.CommandLine -like "*$root*" -and ($_.CommandLine -like "*backend*src*index.js*" -or $_.CommandLine -match 'backend[\\/]src[\\/]mcp-(workspace|desktop|machine)\.js') } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+
+# Stop only the Bonfire sensor helper; Windows does not propagate hard kills to children.
+Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like "*$root*" -and $_.CommandLine -match 'read-machine\.ps1.*-Watch' } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
 Write-Host "Done."

@@ -3,11 +3,17 @@ import { buildWebContext } from "./prompting.js";
 import { canonicalizeUrl, extractHttpUrls, search, stripUrls } from "./search.js";
 import { readPage } from "./page-reader.js";
 
-export async function resolveSearchContext({ message, history = [], webEnabled = false, signal, emit = () => {}, searchFn = search } = {}) {
+export function shouldPrefetchWeb(message) {
+  const text = String(message || '');
+  if (/\b(no (?:web|search)|do not search|don't search|without (?:web|search)|using only|use only (?:these|the provided))\b/i.test(text)) return false;
+  return /\b(latest|current(?:ly)?|today|tonight|right now|this (?:week|month|year)|weather|forecast|price|pricing|verify|fact.check|look up|search (?:the )?web|official source|check current)\b|as of\s+\w+\s+20\d\d/i.test(text);
+}
+
+export async function resolveSearchContext({ message, history = [], webEnabled = false, readPagesEnabled = true, signal, emit = () => {}, searchFn = search } = {}) {
   const pageReads = [];
   let sources = [];
   let searchUnavailable = false;
-  const directUrls = extractHttpUrls(message, MAX_DIRECT_URLS);
+  const directUrls = readPagesEnabled ? extractHttpUrls(message, MAX_DIRECT_URLS) : [];
 
   if (directUrls.length) {
     emit("status", directUrls.length === 1 ? "Reading linked page..." : "Reading linked pages...");
@@ -23,11 +29,11 @@ export async function resolveSearchContext({ message, history = [], webEnabled =
   if (webEnabled && query) {
     emit("status", "Searching web...");
     try {
-      const results = await searchFn(query);
+      const results = await searchFn(query, undefined, undefined, { signal });
       sources = mergeSources(sources, results);
       if (sources.length) emit("search_results", sources);
 
-      const remainingReads = Math.max(0, MAX_PAGES_TO_READ - pageReads.length);
+      const remainingReads = readPagesEnabled ? Math.max(0, MAX_PAGES_TO_READ - pageReads.length) : 0;
       if (remainingReads > 0 && results.length) {
         emit("status", "Reading sources...");
         const readResults = await readSearchResults(results, pageReads, remainingReads, signal);

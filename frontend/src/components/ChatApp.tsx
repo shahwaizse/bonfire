@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowDown, Menu } from "lucide-react";
+import { ArrowDown, Flame, Menu } from "lucide-react";
+import LittleGuysPanel from './LittleGuysPanel';
+import ConnectorPanel from './ConnectorPanel';
+import LittleGuyMascot from './LittleGuyMascot';
 import Sidebar from "./Sidebar";
 import MessageBubble from "./MessageBubble";
 import ComposerBar from "./ComposerBar";
@@ -19,6 +22,7 @@ import {
   fetchConversations,
   streamChat,
   updateConversation,
+  fetchLittleGuys,
 } from "@/lib/api";
 import type {
   ActivityEvent,
@@ -27,10 +31,15 @@ import type {
   DisplayMessage,
   PageReadResult,
   SearchResultItem,
+  LittleGuy,
 } from "@/lib/types";
 
-const searchStorageKey = "bonfire-web-search";
-const modelName = "Qwen3.5-9B · Local";
+function chatIdFromUrl() { return new URL(window.location.href).searchParams.get('chat'); }
+function setChatUrl(id: string | null, replace = false) {
+  const url = new URL(window.location.href);
+  if (id) url.searchParams.set('chat', id); else url.searchParams.delete('chat');
+  if (url.href !== window.location.href) window.history[replace ? 'replaceState' : 'pushState']({}, '', url);
+}
 
 function activityId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -55,7 +64,15 @@ function activityFromStatus(status: string): ActivityEvent {
 
 export default function ChatApp() {
   const [conversations, setConversations] = useState<ConversationOut[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [guys, setGuys] = useState<LittleGuy[]>([]);
+  const [guyId, setGuyId] = useState<string | null>(null);
+  const [crewOpen, setCrewOpen] = useState(false);
+  const [connectorsOpen, setConnectorsOpen] = useState(false);
+  const [crewTarget, setCrewTarget] = useState('crew');
+  const activeGuy = guys.find(guy => guy.id === guyId);
+  const [activeId, setActiveId] = useState<string | null>(chatIdFromUrl);
+  const [chatLoading, setChatLoading] = useState(() => Boolean(chatIdFromUrl()));
+  const [chatError, setChatError] = useState('');
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [searchEnabled, setSearchEnabled] = useState(false);
@@ -63,11 +80,13 @@ export default function ChatApp() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [llamaOnline, setLlamaOnline] = useState<boolean | null>(null);
+  const [modelName, setModelName] = useState('Local model');
   const [generatingIds, setGeneratingIds] = useState<Set<string>>(() => new Set());
-  const activeIdRef = useRef<string | null>(null);
+  const activeIdRef = useRef<string | null>(activeId);
   const streamConversationIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const stopRequestedRef = useRef(false);
+  const navigationRef = useRef(0);
   const manualTitlesRef = useRef<Map<string, string>>(new Map());
 
   const pushActivity = (event: ActivityEvent) => {
@@ -87,18 +106,23 @@ export default function ChatApp() {
       // Backend may still be starting.
     }
   };
+  const refreshGuys = async () => {
+    const list = await fetchLittleGuys();
+    setGuys(list);
+    if (activeIdRef.current === null) setGuyId(current => current && !list.some(guy => guy.id === current) ? null : current);
+  };
+  useEffect(() => {
+    let ignore = false;
+    fetchLittleGuys().then(list => {
+      if (ignore) return;
+      setGuys(list);
+    }).catch(() => {});
+    return () => { ignore = true; };
+  }, []);
 
   const upsertConversation = (conversation: ConversationOut) => {
     setConversations((current) => [conversation, ...current.filter((item) => item.id !== conversation.id)]);
   };
-
-  useEffect(() => {
-    setSearchEnabled(localStorage.getItem(searchStorageKey) === "true");
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem(searchStorageKey, String(searchEnabled));
-  }, [searchEnabled]);
 
   useEffect(() => {
     let ignore = false;
@@ -106,7 +130,7 @@ export default function ChatApp() {
     const pollHealth = () => {
       checkHealth()
         .then((health) => {
-          if (!ignore) setLlamaOnline(health.llama_cpp);
+          if (!ignore) { setLlamaOnline(health.llama_cpp); setModelName(`${health.model} · Local`); }
         })
         .catch(() => {
           if (!ignore) setLlamaOnline(false);
@@ -131,6 +155,8 @@ export default function ChatApp() {
 
   const loadConversationMessages = async (id: string) => {
     const detail = await fetchConversation(id);
+    if (activeIdRef.current !== id) return;
+    setGuyId(detail.agent_id || null);
     const loaded = detail.messages
       .filter((message) => message.role !== "system")
       .map((message) => ({
@@ -144,21 +170,40 @@ export default function ChatApp() {
     setMessages(loaded);
   };
 
-  const handleSelectConversation = async (id: string) => {
-    setActiveId(id);
-    activeIdRef.current = id;
-    setSidebarOpen(false);
+  const selectChat = async (id: string) => {
+    navigationRef.current++;
+    setActiveId(id); activeIdRef.current = id;
+    setSidebarOpen(false); setChatLoading(true); setChatError(''); setMessages([]); setInput('');
     if (streamConversationIdRef.current !== id) setActivity([]);
-    await loadConversationMessages(id);
+    try { await loadConversationMessages(id); }
+    catch (error) {
+      if (activeIdRef.current === id) {
+        setChatError(error instanceof Error ? error.message : 'Could not load chat');
+        setGuyId(null);
+      }
+    } finally { if (activeIdRef.current === id) setChatLoading(false); }
   };
+  const handleSelectConversation = (id: string) => { setChatUrl(id); return selectChat(id); };
+  const clearChat = (nextGuyId: string | null = null) => {
+    navigationRef.current++;
+    setSearchEnabled(false);
+    setGuyId(nextGuyId && guys.some(guy => guy.id === nextGuyId) ? nextGuyId : null);
+    setActiveId(null); activeIdRef.current = null;
+    setMessages([]); setInput(''); setActivity([]); setChatError(''); setChatLoading(false); setSidebarOpen(false);
+  };
+  const handleNewChat = (nextGuyId: string | null = null) => {
+    if (isStreaming) return;
+    setChatUrl(null); clearChat(nextGuyId);
+  };
+  useEffect(() => {
+    const initial = chatIdFromUrl();
+    if (initial) void selectChat(initial);
+    const onNavigate = () => { const id = chatIdFromUrl(); if (id) void selectChat(id); else clearChat(); };
+    window.addEventListener('popstate', onNavigate);
+    return () => { window.removeEventListener('popstate', onNavigate); activeIdRef.current = null; };
+  }, []);
 
-  const handleNewChat = () => {
-    setActiveId(null);
-    activeIdRef.current = null;
-    setMessages([]);
-    setActivity([]);
-    setSidebarOpen(false);
-  };
+  const openCrew = (target = 'crew') => { setCrewTarget(target); setCrewOpen(true); setSidebarOpen(false); };
 
   const handleDeleteConversation = async (id: string) => {
     await deleteConversation(id).catch(() => {});
@@ -200,8 +245,9 @@ export default function ChatApp() {
 
   const handleSend = async () => {
     const text = input.trim();
-    if (!text || isStreaming) return;
+    if (!text || isStreaming || chatLoading || chatError) return;
 
+    const requestNavigation = navigationRef.current;
     setInput("");
     setIsStreaming(true);
     stopRequestedRef.current = false;
@@ -215,11 +261,20 @@ export default function ChatApp() {
     const assistantMessage: DisplayMessage = { id: `local-assistant-${Date.now()}`, role: "assistant", content: "" };
     setMessages((current) => [...current, userMessage, assistantMessage]);
 
+    let pendingText = '', frame: number | null = null, firstTextFlushed = false;
+    const flushText = () => {
+      if (frame !== null) { window.cancelAnimationFrame(frame); frame = null; }
+      if (!pendingText) return;
+      const text = pendingText; pendingText = '';
+      updateLastAssistant(message => ({ ...message, content: message.content + text }));
+    };
+
     try {
       for await (const event of streamChat({
         conversationId: activeId,
         message: text,
         searchEnabled,
+        agentId: guyId,
         signal: abortController.signal,
       })) {
         switch (event.type) {
@@ -229,11 +284,13 @@ export default function ChatApp() {
               title: event.data.title || "New chat",
               created_at: nowIso(),
               updated_at: nowIso(),
+              agent_id: event.data.agent_id,
             });
             setGeneratingIds((current) => new Set(current).add(event.data.conversation_id));
-            if (activeIdRef.current === null) {
+            if (activeIdRef.current === null && navigationRef.current === requestNavigation) {
               setActiveId(event.data.conversation_id);
               activeIdRef.current = event.data.conversation_id;
+              setChatUrl(event.data.conversation_id, true);
             }
             streamConversationIdRef.current = event.data.conversation_id;
             break;
@@ -252,7 +309,9 @@ export default function ChatApp() {
             handlePageRead(event.data);
             break;
           case "token":
-            updateLastAssistant((message) => ({ ...message, content: message.content + event.data }));
+            pendingText += event.data;
+            if (!firstTextFlushed && pendingText.trim()) { firstTextFlushed = true; flushText(); }
+            else if (frame === null) frame = window.requestAnimationFrame(flushText);
             break;
           case 'tool_call':
             updateLastAssistant((message) => ({ ...message, toolActivity: [...(message.toolActivity || []), event] }));
@@ -263,6 +322,7 @@ export default function ChatApp() {
             pushActivity(makeActivity(event.data.isError ? 'error' : 'result', event.data.isError ? `Tool failed: ${event.data.name}` : `Finished ${event.data.name.replace('__', ' / ')}`, event.data.summary));
             break;
           case "error":
+            flushText();
             pushActivity(makeActivity("error", event.data));
             updateLastAssistant((message) => ({
               ...message,
@@ -270,11 +330,16 @@ export default function ChatApp() {
             }));
             break;
           case "done":
+            flushText();
+            if (activeIdRef.current === streamConversationIdRef.current) setMessages(current => current.map(message =>
+              message.id === userMessage.id && event.data.user_message_id ? { ...message, id: String(event.data.user_message_id) } :
+              message.id === assistantMessage.id && event.data.assistant_message_id ? { ...message, id: String(event.data.assistant_message_id) } : message));
             pushActivity(makeActivity("result", "Answer ready"));
             break;
         }
       }
     } catch (error) {
+      flushText();
       if (stopRequestedRef.current || abortController.signal.aborted) {
         pushActivity(makeActivity("result", "Generation stopped"));
         return;
@@ -283,6 +348,7 @@ export default function ChatApp() {
       pushActivity(makeActivity("error", message));
       updateLastAssistant((last) => ({ ...last, content: last.content + `\n\n_Error: ${message}_` }));
     } finally {
+      flushText();
       const completedConversationId = streamConversationIdRef.current;
       setIsStreaming(false);
       abortControllerRef.current = null;
@@ -296,7 +362,7 @@ export default function ChatApp() {
           return next;
         });
       }
-      if (completedConversationId && activeIdRef.current === completedConversationId) {
+      if (abortController.signal.aborted && completedConversationId && activeIdRef.current === completedConversationId) {
         await loadConversationMessages(completedConversationId).catch(() => {});
       }
       refreshConversations();
@@ -314,9 +380,16 @@ export default function ChatApp() {
     <div className="relative flex h-dvh min-h-dvh overflow-hidden bg-background text-foreground">
       <Sidebar
         conversations={conversations}
+        guys={guys}
+        guyId={guyId}
         activeId={activeId}
         onSelect={handleSelectConversation}
         onNewChat={handleNewChat}
+        onCreateGuy={() => openCrew('new')}
+        onEditGuy={id => openCrew(id)}
+        onManageGuys={() => openCrew()}
+        onManageTools={() => { setSidebarOpen(false); setConnectorsOpen(true); }}
+        chatBusy={isStreaming || chatLoading}
         onDelete={handleDeleteConversation}
         onRename={handleRenameConversation}
         mobileOpen={sidebarOpen}
@@ -327,22 +400,33 @@ export default function ChatApp() {
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex flex-none items-center justify-between gap-2 border-b bg-background/65 px-3 py-2 pl-16 backdrop-blur-xl sm:px-5">
+          <div className="flex min-w-0 items-center gap-2">
+            {activeGuy ? <LittleGuyMascot recipe={activeGuy.mascot} size={42} label={activeGuy.name} /> : <Flame className="m-2 size-6 text-primary" />}
+            <div className="min-w-0"><p className="truncate text-sm font-medium">{activeGuy?.name || (guyId ? 'Retired little guy' : 'Bonfire')}</p><p className="truncate text-[11px] text-muted-foreground">{activeGuy?.tagline || (guyId ? 'Saved chat history' : 'Your general-purpose corner')}</p></div>
+          </div>
+        </header>
         <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex justify-start p-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] sm:hidden">
           <Button
             variant="outline"
             size="icon"
             onClick={() => setSidebarOpen(true)}
-            aria-label="Open conversations"
+            aria-label="Open little guys and chats"
             className="pointer-events-auto bg-background/78 backdrop-blur-xl"
           >
             <Menu />
           </Button>
         </div>
 
-        {messages.length === 0 ? (
+        {chatLoading || chatError ? (
+          <main className="flex flex-1 flex-col items-center justify-center gap-3 p-6">
+            <p role={chatError ? 'alert' : 'status'} className="text-sm text-muted-foreground">{chatLoading ? 'Loading chat?' : chatError}</p>
+            {chatError && <div className="flex gap-2"><Button variant="outline" onClick={() => activeId && void selectChat(activeId)}>Retry</Button><Button onClick={() => handleNewChat()}>New Bonfire chat</Button></div>}
+          </main>
+        ) : messages.length === 0 ? (
           <main className="flex min-h-0 flex-1 flex-col items-center justify-center px-3 py-8 pb-[calc(env(safe-area-inset-bottom)+2rem)] sm:pb-8">
             <div className="mb-6 flex w-full max-w-[780px] flex-col items-center text-center">
-              <h1 className="text-2xl font-semibold sm:text-3xl">Bonfire</h1>
+              {activeGuy ? <><LittleGuyMascot recipe={activeGuy.mascot} size={172} label={activeGuy.name} /><h1 className="mt-4 text-2xl font-semibold sm:text-3xl">{activeGuy.name}</h1><p className="mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">{activeGuy.tagline}</p></> : <><Flame className="mb-5 size-12 text-primary" /><h1 className="text-2xl font-semibold sm:text-3xl">Bonfire.</h1><p className="mt-2 text-sm text-muted-foreground">For whatever's on your mind.</p></>}
             </div>
             <ComposerBar
               value={input}
@@ -397,6 +481,8 @@ export default function ChatApp() {
           </>
         )}
       </div>
+      {connectorsOpen && <ConnectorPanel onClose={() => setConnectorsOpen(false)} onAssign={() => { setConnectorsOpen(false); openCrew(guyId || 'crew'); }} />}
+      {crewOpen && <LittleGuysPanel open={crewOpen} onOpenChange={setCrewOpen} guys={guys} onSaved={refreshGuys} onChoose={handleNewChat} chatBusy={isStreaming || chatLoading} startInCreator={crewTarget === 'new'} initialGuy={guys.find(guy => guy.id === crewTarget)} />}
     </div>
   );
 }

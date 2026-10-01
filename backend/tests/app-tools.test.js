@@ -6,8 +6,9 @@ const image = { url: 'https://images.example.com/a.jpg', thumbnail: 'https://ima
 
 test('images and link reads are tools independent of Web; Web grants search choice', async () => {
   const off = new AppTools({ mcp });
-  assert.deepEqual((await off.catalog()).map(tool => tool.function.name), ['search_images', 'read_webpage']);
-  assert.equal((await new AppTools({ mcp, webEnabled: true }).catalog()).length, 3);
+  assert.deepEqual((await off.catalog()).filter(tool => !tool.function.name.startsWith('files__')).map(tool => tool.function.name), ['search_images', 'read_webpage']);
+  assert.equal((await new AppTools({ mcp, webEnabled: true }).catalog()).filter(tool => !tool.function.name.startsWith('files__')).length, 3);
+  assert.ok((await off.catalog()).some(tool => tool.function.name === 'files__read_file'));
   await assert.rejects(off.call('search_web', { query: 'latest model' }), /disabled/);
 });
 test('native image tool emits cumulative gallery metadata and does not add duplicate source footers', async () => {

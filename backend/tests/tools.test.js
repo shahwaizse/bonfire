@@ -16,6 +16,23 @@ function toolTurn(name = schema.function.name, args = '{"path":"welcome.txt"}') 
   return [{ delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name, arguments: args } }] } }, { delta: {}, finish_reason: 'tool_calls' }];
 }
 const answerTurn = [{ delta: { content: 'Verified answer.' } }, { delta: {}, finish_reason: 'stop' }];
+
+test('native filesystem read exposes literal text without JSON escapes or line prefixes', async () => {
+  const tool = { type: 'function', function: { name: 'files__read_file', parameters: { type: 'object' } } };
+  const raw = '{"completed":0,"owner":"tiny"}\n';
+  const registry = { catalog: async () => [tool], call: async () => ({ content: [{ type: 'text', text: JSON.stringify({ path: 'progress.json', sha256: 'a'.repeat(64), start_line: 1, content: raw, next_line: null }) }] }) };
+  await runToolLoop([], { registry, emit: () => {}, streamTurn: turnStream([toolTurn(tool.function.name), answerTurn], (messages, index) => {
+    if (index === 1) { assert.ok(messages.at(-1).content.endsWith('File content (raw):\n' + raw)); assert.doesNotMatch(messages.at(-1).content, /1: /); }
+  }) });
+});
+test('empty model completion retries once and can recover', async () => {
+  const { options } = setup();
+  assert.equal(await runToolLoop([], { ...options, streamTurn: turnStream([[{ delta: {}, finish_reason: 'stop' }], answerTurn]) }), 'Verified answer.');
+});
+test('repeated empty model completion produces an explicit error', async () => {
+  const { options } = setup();
+  await assert.rejects(runToolLoop([], { ...options, streamTurn: turnStream([[{ delta: {}, finish_reason: 'stop' }], [{ delta: {}, finish_reason: 'stop' }]]) }), /empty response/);
+});
 function setup(call = async () => ({ content: [{ type: 'text', text: 'Actual result' }] })) {
   const events = [];
   return { events, options: { registry: { catalog: async () => [schema], call }, emit: (type, data) => events.push({ type, data }) } };
@@ -99,7 +116,7 @@ test('active tool calls receive cancellation and do not start another turn', asy
 test('long tool output is explicitly marked as truncated', async () => {
   const { options } = setup(async () => ({ content: [{ type: 'text', text: 'z'.repeat(12000) }] }));
   await runToolLoop([], { ...options, streamTurn: turnStream([toolTurn(), answerTurn], (messages, index) => {
-    if (index === 1) { const result = JSON.parse(messages.at(-1).content); assert.equal(result.truncated, true); assert.equal(result.content[0].text.length, 6000); }
+    if (index === 1) { const result = JSON.parse(messages.at(-1).content); assert.equal(result.truncated, true); assert.equal(result.text.length, 6000); }
   }) });
 });
 test('truncated or incomplete model turns never execute tools', async () => {

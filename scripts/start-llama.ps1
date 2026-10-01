@@ -1,5 +1,5 @@
 <#
-Starts Qwen with Vulkan GPU offload on 127.0.0.1:8082.
+Starts the configured model with tuned Vulkan GPU offload on 127.0.0.1:8082.
 #>
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
@@ -34,5 +34,7 @@ try {
     $env:LLAMA_ARG_CHAT_TEMPLATE_KWARGS = '{"enable_thinking":false}'
     # Direct invocation needs an unquoted path; Start-Process uses the quoted form.
     $modelArgs[1] = $modelPath
+    $draftIndex = [Array]::IndexOf($modelArgs, '--model-draft')
+    if ($draftIndex -ge 0) { $modelArgs[$draftIndex + 1] = $env:BONFIRE_DRAFT_MODEL_PATH }
     & $serverExe @modelArgs
 } finally { $env:LLAMA_ARG_CHAT_TEMPLATE_KWARGS = $previousOptions }

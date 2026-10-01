@@ -1,5 +1,26 @@
 # Bonfire local tool-calling bake-off
 
+## Filesystem and Bash app corpus
+
+The filesystem corpus exercises the current app through `/chat`, with real local inference and real files on D:. It is separate from the model-comparison harness below.
+
+[Measured results, failures and improvements](../../docs/filesystem-benchmark-2026-10-02.md).
+
+For a small cross-turn process lifecycle check with two different short agent instructions, run `node bench/managed-command-app.js`. See [shared harness changes and results](../../docs/harness-improvements-2026-10-02.md). This uses isolated fixtures on ports 3021/3022 and cleans up its processes/configuration.
+
+```powershell
+cd backend
+npm run test:files
+npm run bench:files -- my-run 2
+node bench/filesystem-report.js D:/Projects/bonfire-files-bench/<run>/results.json
+```
+
+Start Bonfire first and leave its GPU free. The app corpus creates isolated folders, temporary guys and chats; it removes those configuration entries afterward and retains fixtures/traces on D: for review. It never edits existing user documents or calls hosted search. Cases cover paged reads, exact edits with repeated values, multiple files, Unicode/CRLF, recursive discovery, missing files, read-only access, backup restoration and a model-written website launched through Bash. A successful coding demo leaves its local server running at `http://127.0.0.1:3011`; stop it before another corpus run. Each generated server writes its PID under the run's `counter-demo` directory.
+
+Task accuracy uses actual file bytes and returned evidence, not an LLM judge. Tool execution success is reported separately because a valid call can still write the wrong file. Visible-text TTFT, time to first tool call, total completion time and recorded llama.cpp generation/prompt timings are retained per request. Runs are sequential and the model is already loaded; new prompts can still incur cache misses. This small corpus is a regression check, not a broad capability benchmark.
+
+## Earlier model comparison
+
 Status: executed on 2026-09-30; [results and analysis](../../docs/tool-calling-bakeoff-2026-09-30.md). Current suite: `bonfire-tools-v1.1`. All inference stays on this machine. The tools below are deterministic fixtures, not real MCP connections, web APIs, filesystem writes, or service operations.
 
 ## Candidates

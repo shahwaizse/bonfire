@@ -98,7 +98,7 @@
       if(s>4.65){const e=ease((s-4.65)/.35);c.save();c.globalAlpha=e;background(t);c.restore();}
     }else{const s=t-20.5;
       c.save();camera(640,360,key(s,[[0,1.15],[.4,1],[3,1],[3.5,1.03]]));flame(640,137,.56,s);popWord('bonfire',290,369,181,s);text('SELF-HOST. BREAK THINGS. LEARN STUFF.',640,459,27,P.paper,'center',650);
-      if(s>.7){text('not a startup. please relax.',640,516,25,P.orange,'center',500);}if(s>1.4){text('github.com/shahwaizse/bonfire',640,582,19,P.muted,'center',500);}c.restore();
+      if(s>.7){text('experimental. use at your own risk.',640,516,25,P.orange,'center',500);}if(s>1.4){text('github.com/shahwaizse/bonfire',640,582,19,P.muted,'center',500);}c.restore();
     }
   }
   window.bonfireFilm={draw,duration:DURATION,width:W,height:H};

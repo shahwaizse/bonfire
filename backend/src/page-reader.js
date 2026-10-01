@@ -1,5 +1,7 @@
 import * as cheerio from "cheerio";
 import { PAGE_EXCERPT_CHARS, SEARCH_TIMEOUT_SECONDS } from "./config.js";
+import { ResultCache } from './result-cache.js';
+const pageCache = new ResultCache({ maxEntries: 32, ttlMs: 60000 });
 
 const READER_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
@@ -22,7 +24,16 @@ const CONTENT_SELECTORS = [
 const TEXT_SELECTORS = "h1,h2,h3,p,li,blockquote,pre";
 
 export async function readPage(url, { signal } = {}) {
+  signal?.throwIfAborted();
   const requestedUrl = normalizeReadUrl(url);
+  const cached = pageCache.get(requestedUrl);
+  if (cached) return { ...cached, cached: true };
+  const page = await fetchPage(requestedUrl, { signal });
+  const result = { ...page, retrieved_at: new Date().toISOString() };
+  pageCache.set(requestedUrl, result); return result;
+}
+
+async function fetchPage(requestedUrl, { signal } = {}) {
   const response = await fetch(requestedUrl, {
     headers: {
       "User-Agent": READER_USER_AGENT,
@@ -69,7 +80,7 @@ export async function readPage(url, { signal } = {}) {
       $("meta[name='twitter:title']").attr("content") ||
       $("title").first().text() ||
       $("h1").first().text() ||
-      url
+      requestedUrl
   );
   const description = normalize(
     $("meta[name='description']").attr("content") || $("meta[property='og:description']").attr("content") || ""
@@ -110,7 +121,8 @@ function bestContent($) {
     return { text, score: scoreText(text) };
   }).filter(Boolean);
 
-  candidates.push({ text: extractText($, $("body").first()), score: scoreText(extractText($, $("body").first())) });
+  const body = extractText($, $("body").first());
+  candidates.push({ text: body, score: scoreText(body) });
   candidates.sort((a, b) => b.score - a.score);
   return candidates[0]?.text || "";
 }

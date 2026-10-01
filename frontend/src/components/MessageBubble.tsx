@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, memo, Suspense } from "react";
 import type { ActivityEvent, DisplayMessage, SearchResultItem } from "@/lib/types";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Message, MessageContent } from "@/components/ui/message";
@@ -13,7 +13,7 @@ interface MessageBubbleProps {
 
 const MarkdownContent = lazy(() => import("./MarkdownContent"));
 
-export default function MessageBubble({ message, active = false, activity = [] }: MessageBubbleProps) {
+function MessageBubble({ message, active = false, activity = [] }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const hasContent = message.content.trim().length > 0;
   const hasSources = !isUser && (message.sources?.length ?? 0) > 0;
@@ -41,7 +41,7 @@ export default function MessageBubble({ message, active = false, activity = [] }
               ) : (
                 <div className="prose-chat">
                   <Suspense fallback={<p className="whitespace-pre-wrap">{message.content}</p>}>
-                    <MarkdownContent content={message.content} sources={message.sources} />
+                    <MarkdownContent content={message.content} sources={message.sources} hasPictureGallery={Boolean(message.images?.length)} />
                   </Suspense>
                 </div>
               )}
@@ -67,6 +67,8 @@ export default function MessageBubble({ message, active = false, activity = [] }
     </Message>
   );
 }
+
+export default memo(MessageBubble, (previous, next) => previous.message === next.message && previous.active === next.active && (!next.active || previous.activity === next.activity));
 
 function SourcePanel({ sources }: { sources: SearchResultItem[] }) {
   return (

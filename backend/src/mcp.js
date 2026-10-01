@@ -4,6 +4,9 @@ import Ajv from 'ajv';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { BACKEND_DIR } from './config.js';
+import { desktopApps } from './desktop-apps.js';
+import { inferenceStatsPath } from './inference-stats.js';
+import { remoteMcp } from './remote-mcp.js';
 
 export class McpRegistry {
   constructor({ configPath = process.env.MCP_CONFIG_PATH || path.join(BACKEND_DIR, 'mcp.json'), servers } = {}) {
@@ -23,6 +26,13 @@ export class McpRegistry {
         servers = [{ name: 'workspace', command: process.execPath, args: [path.join(BACKEND_DIR, 'src/mcp-workspace.js')],
           env: { BONFIRE_MCP_ROOT: process.env.BONFIRE_MCP_ROOT || 'D:/Projects/bonfire-mcp' }, allowTools: ['list_files', 'read_file'] }];
       }
+      // The built-in desktop server is available to the editor; default chat never gets its tools.
+      if (Array.isArray(servers) && !servers.some(server => server.name === 'desktop')) servers.push({ name: 'desktop', command: process.execPath,
+        args: [path.join(BACKEND_DIR, 'src/mcp-desktop.js')], env: { BONFIRE_APPS_PATH: desktopApps.configPath },
+        allowTools: ['list_apps', 'launch_app'], allowSideEffects: ['launch_app'] });
+      if (Array.isArray(servers) && !servers.some(server => server.name === 'machine')) servers.push({ name: 'machine', command: process.execPath,
+        args: [path.join(BACKEND_DIR, 'src/mcp-machine.js')], env: { BONFIRE_INFERENCE_STATS_PATH: inferenceStatsPath },
+        allowTools: ['get_machine_snapshot', 'get_inference_stats', 'get_status'] });
     }
     if (!Array.isArray(servers)) throw new Error('MCP servers must be an array');
     const names = new Set();
@@ -52,9 +62,10 @@ export class McpRegistry {
         for (const tool of tools) {
           if (!server.allowTools.includes(tool.name)) continue;
           if (!/^[a-zA-Z0-9_-]{1,36}$/.test(tool.name)) throw new Error('Unsupported MCP tool name');
-          if (tool.annotations?.readOnlyHint !== true || tool.annotations?.destructiveHint === true) throw new Error('Only declared read-only tools are supported');
+          const explicitEffect = server.allowSideEffects?.includes(tool.name) && tool.annotations?.destructiveHint === false;
+          if ((tool.annotations?.readOnlyHint !== true && !explicitEffect) || tool.annotations?.destructiveHint === true) throw new Error('Side effects require an explicit per-tool allowSideEffects entry');
           const name = `${server.name}__${tool.name}`;
-          entries.push([name, { client, originalName: tool.name, validate: this.ajv.compile(tool.inputSchema),
+          entries.push([name, { client, originalName: tool.name, readOnly: tool.annotations?.readOnlyHint === true, validate: this.ajv.compile(tool.inputSchema),
             schema: { type: 'function', function: { name, description: (tool.description || tool.name).slice(0, 1000), parameters: tool.inputSchema } } }]);
         }
         for (const [name, entry] of entries) this.entries.set(name, entry);
@@ -86,6 +97,16 @@ export class McpRegistry {
     return entry.client.callTool({ name: entry.originalName, arguments: args }, undefined, { signal, timeout: 15000 });
   }
   async close() { await Promise.allSettled(this.clients.map(client => client.close())); }
+  isReadOnly(name) { return this.entries.get(name)?.readOnly === true; }
 }
 
-export const mcpRegistry = new McpRegistry();
+const localMcp = new McpRegistry();
+const remoteEntry = name => !localMcp.status.some(server => name.startsWith(`${server.name}__`)) && remoteMcp.entry(name);
+export const mcpRegistry = {
+  get status() { return [...localMcp.status, ...remoteMcp.status()]; },
+  async catalog() { const [local, remote] = await Promise.all([localMcp.catalog(), remoteMcp.catalog().catch(() => [])]); return [...local, ...remote.filter(tool => remoteEntry(tool.function.name))]; },
+  call(name, args, options) { return remoteEntry(name) ? remoteMcp.call(name, args, options) : localMcp.call(name, args, options); },
+  isReadOnly(name) { return remoteEntry(name) ? remoteMcp.isReadOnly(name) : localMcp.isReadOnly(name); },
+  isRemote(name) { return !localMcp.status.some(server => name.startsWith(`${server.name}__`)) && remoteMcp.isRemote(name); },
+  async close() { await Promise.allSettled([localMcp.close(), remoteMcp.close()]); },
+};

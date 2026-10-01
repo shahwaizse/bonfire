@@ -38,6 +38,7 @@ export const CORS_ORIGINS = (process.env.CORS_ORIGINS || "http://127.0.0.1:3000,
   .filter(Boolean);
 
 export const MAX_HISTORY_CHARS = numberFromEnv("MAX_HISTORY_CHARS", 10000);
+export const MAX_HISTORY_TOKENS = Math.max(256, numberFromEnv('MAX_HISTORY_TOKENS', 2400));
 export const MAX_SEARCH_RESULTS = numberFromEnv("MAX_SEARCH_RESULTS", 4);
 export const MAX_PAGES_TO_READ = numberFromEnv("MAX_PAGES_TO_READ", 2);
 export const MAX_DIRECT_URLS = numberFromEnv("MAX_DIRECT_URLS", 3);
@@ -47,6 +48,8 @@ export const SEARCH_SAFESEARCH_DEFAULT = numberFromEnv("SEARCH_SAFESEARCH_DEFAUL
 export const SEARCH_LANGUAGE = process.env.SEARCH_LANGUAGE || "auto";
 
 export const LLM_TEMPERATURE = numberFromEnv("LLM_TEMPERATURE", 0.1);
+export const LLM_MODEL = process.env.LLM_MODEL || 'gemma';
+export const LLM_MODEL_NAME = process.env.LLM_MODEL_NAME || 'Gemma 4 E4B';
 export const LLM_TOP_P = numberFromEnv("LLM_TOP_P", 1);
 export const LLM_MIN_P = numberFromEnv("LLM_MIN_P", 0);
 export const LLM_REPEAT_PENALTY = numberFromEnv("LLM_REPEAT_PENALTY", 1);

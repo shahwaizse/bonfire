@@ -24,7 +24,7 @@ test('general generation and host web capabilities are distinct from MCP access'
   assert.match(prompt, /draft code/);
   assert.match(prompt, /do not require tools or file-write permissions/);
   assert.match(prompt, /Web search toggle is OFF/);
-  assert.match(prompt, /inline thumbnail gallery/);
+  assert.match(prompt, /displays the pictures below/);
 });
 
 test("selectRecentHistory keeps the newest coherent suffix", () => {

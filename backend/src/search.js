@@ -1,19 +1,27 @@
 import { URL } from "node:url";
 import { MAX_SEARCH_RESULTS } from "./config.js";
 import { providerSearch } from "./search-providers.js";
+import { ResultCache } from './result-cache.js';
+const searchCache = new ResultCache({ ttlMs: 30000 });
 
 const EXPLICIT_URL_RE = /\b(?:https?:\/\/|www\.)[^\s<>"'`]+/gi;
 const BARE_DOMAIN_RE = /(?:^|[\s(<\[{])((?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:\/[^\s<>"'`]*)?)/gi;
 const NON_URL_SUFFIXES = new Set(["c", "cpp", "css", "go", "h", "js", "json", "md", "py", "rs", "ts", "tsx", "txt"]);
 const TRACKING_KEYS = new Set(["fbclid", "gclid", "igshid", "mc_cid", "mc_eid", "ref", "ref_src", "spm"]);
 
-export async function search(query, maxResults = MAX_SEARCH_RESULTS, searchProvider = providerSearch) {
+export async function search(query, maxResults = MAX_SEARCH_RESULTS, searchProvider = providerSearch, { signal } = {}) {
   const cleanQuery = normalizeQuery(query);
   if (!cleanQuery) return [];
 
   const count = Math.max(1, Math.min(20, Math.floor(Number(maxResults) || MAX_SEARCH_RESULTS)));
-  const results = await searchProvider(cleanQuery, count);
-  return rankAndDedupe(results.map(normalizeItem).filter(Boolean), cleanQuery).slice(0, count);
+  signal?.throwIfAborted();
+  const key = JSON.stringify([cleanQuery, count]);
+  const cached = searchProvider === providerSearch ? searchCache.get(key) : null;
+  if (cached) return cached.map(result => ({ ...result, cached: true }));
+  const results = await searchProvider(cleanQuery, count, { signal });
+  const normalized = rankAndDedupe(results.map(normalizeItem).filter(Boolean), cleanQuery).slice(0, count).map(result => ({ ...result, retrieved_at: new Date().toISOString() }));
+  if (searchProvider === providerSearch && normalized.length) searchCache.set(key, normalized);
+  return normalized;
 }
 
 export function extractHttpUrls(text, maxUrls = 10) {

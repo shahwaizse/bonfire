@@ -9,10 +9,13 @@
     "test": "node --test tests/*.test.js",
     "bench:tools": "node bench/run.js",
     "bench:report": "node bench/report.js",
+    "bench:files": "node bench/filesystem-app.js",
+    "test:files": "node --test tests/filesystem.test.js",
     "bench:test": "node --test bench/harness.test.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.31.0",
+    "@modelcontextprotocol/server-filesystem": "2026.8.31",
     "ajv": "^8.20.0",
     "better-sqlite3": "^12.5.0",
     "cheerio": "^1.1.2",

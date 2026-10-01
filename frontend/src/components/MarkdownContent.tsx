@@ -1,4 +1,5 @@
 import ReactMarkdown from "react-markdown";
+import { useMemo } from 'react';
 import remarkGfm from "remark-gfm";
 import type { SearchResultItem } from "@/lib/types";
 import { faviconUrl, sourceDomain } from "@/lib/sources";
@@ -11,11 +12,16 @@ type MarkdownNode = {
   children?: MarkdownNode[];
 };
 
-export default function MarkdownContent({ content, sources = [] }: { content: string; sources?: SearchResultItem[] }) {
+export default function MarkdownContent({ content, sources = [], hasPictureGallery = false }: { content: string; sources?: SearchResultItem[]; hasPictureGallery?: boolean }) {
+  const plugins = useMemo(() => [remarkGfm, citationPlugin(sources.length), galleryPlaceholderPlugin(hasPictureGallery)], [sources.length, hasPictureGallery]);
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm, citationPlugin(sources.length)]}
+      remarkPlugins={plugins}
+      disallowedElements={["img"]}
       components={{
+        table({ children }) {
+          return <div className="chat-table-scroll" role="region" aria-label="Table" tabIndex={0}><table>{children}</table></div>;
+        },
         a({ href, children }) {
           const citation = citationIndex(href);
           if (citation !== null && sources[citation]) return <CitationLink source={sources[citation]} />;
@@ -30,6 +36,21 @@ export default function MarkdownContent({ content, sources = [] }: { content: st
       {content}
     </ReactMarkdown>
   );
+}
+
+function galleryPlaceholderPlugin(enabled: boolean) {
+  return () => (tree: MarkdownNode) => {
+    if (!enabled) return;
+    const visit = (node: MarkdownNode) => {
+      if (node.type === 'code' || node.type === 'inlineCode') return;
+      if ((node.type === 'text' || node.type === 'html') && node.value) {
+        node.value = node.value.replace(/(?:<|&lt;)\s*\/?(?:pictures?|images?)[\s_-]+gallery\s*\/?\s*(?:>|&gt;)/gi, '');
+      }
+      node.children?.forEach(visit);
+      if (node.children) node.children = node.children.filter(child => !((child.type === 'text' || child.type === 'html') && child.value === '') && !(child.type === 'paragraph' && !child.children?.length));
+    };
+    visit(tree);
+  };
 }
 
 function CitationLink({ source }: { source: SearchResultItem }) {

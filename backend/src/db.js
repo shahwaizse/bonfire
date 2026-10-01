@@ -3,6 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import { DATABASE_PATH } from "./config.js";
+import { withDefaultWebTools } from './default-tools.js';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS conversations (
@@ -20,6 +21,12 @@ CREATE TABLE IF NOT EXISTS messages (
   sources TEXT,
   created_at TEXT NOT NULL,
   FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS little_guys (
+  id TEXT PRIMARY KEY,
+  profile TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 `;
 
@@ -50,6 +57,7 @@ export class BonfireDatabase {
   }
 
   migrate() {
+    this.ensureColumn('conversations', 'agent_id', 'ALTER TABLE conversations ADD COLUMN agent_id TEXT');
     this.ensureColumn("messages", "sources", "ALTER TABLE messages ADD COLUMN sources TEXT");
     this.ensureColumn('messages', 'tool_activity', 'ALTER TABLE messages ADD COLUMN tool_activity TEXT');
     this.ensureColumn('messages', 'images', 'ALTER TABLE messages ADD COLUMN images TEXT');
@@ -68,12 +76,12 @@ export class BonfireDatabase {
     if (!this.hasColumn(tableName, columnName)) this.db.exec(statement);
   }
 
-  createConversation(title) {
+  createConversation(title, agentId = null) {
     const id = randomUUID();
     const now = nowIso();
     this.db
-      .prepare("INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)")
-      .run(id, title, now, now);
+      .prepare("INSERT INTO conversations (id, title, agent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+      .run(id, title, agentId, now, now);
     return id;
   }
 
@@ -84,13 +92,13 @@ export class BonfireDatabase {
   listConversations() {
     const sourceFilter = this.hasColumn("conversations", "source") ? "WHERE source = 'chat'" : "";
     return this.db
-      .prepare(`SELECT id, title, created_at, updated_at FROM conversations ${sourceFilter} ORDER BY updated_at DESC`)
+      .prepare(`SELECT id, title, agent_id, created_at, updated_at FROM conversations ${sourceFilter} ORDER BY updated_at DESC`)
       .all();
   }
 
   getConversation(id) {
     return rowToObject(
-      this.db.prepare("SELECT id, title, created_at, updated_at FROM conversations WHERE id = ?").get(id)
+      this.db.prepare("SELECT id, title, agent_id, created_at, updated_at FROM conversations WHERE id = ?").get(id)
     );
   }
 
@@ -129,6 +137,20 @@ export class BonfireDatabase {
       .prepare("SELECT id, role, content, sources, tool_activity, images, created_at FROM messages WHERE conversation_id = ? ORDER BY id ASC")
       .all(conversationId);
   }
+
+  listLittleGuys() {
+    return this.db.prepare('SELECT * FROM little_guys ORDER BY created_at').all().map(row => ({ ...withDefaultWebTools(JSON.parse(row.profile)), id: row.id, created_at: row.created_at, updated_at: row.updated_at }));
+  }
+  getLittleGuy(id) {
+    const row = this.db.prepare('SELECT * FROM little_guys WHERE id = ?').get(id);
+    return row ? { ...withDefaultWebTools(JSON.parse(row.profile)), id: row.id, created_at: row.created_at, updated_at: row.updated_at } : null;
+  }
+  saveLittleGuy(profile, id = randomUUID()) {
+    const now = nowIso();
+    this.db.prepare('INSERT INTO little_guys (id, profile, created_at, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET profile = excluded.profile, updated_at = excluded.updated_at').run(id, JSON.stringify(profile), now, now);
+    return this.getLittleGuy(id);
+  }
+  deleteLittleGuy(id) { this.db.prepare('DELETE FROM little_guys WHERE id = ?').run(id); }
 }
 
 export const database = new BonfireDatabase();

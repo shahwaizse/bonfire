@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react";
-import { Globe, Send, Square } from "lucide-react";
+import { ArrowUp, Globe, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -69,13 +68,14 @@ export default function ComposerBar({
         />
 
         <div className="flex items-center justify-between gap-2 border-t px-1 pt-2">
-          <div className="flex items-center gap-2">
-          <label className="flex h-8 items-center gap-2 rounded-lg border bg-background/60 px-2.5 text-xs text-muted-foreground">
-            <Globe className="size-3.5" />
-            <span>Web</span>
-            <Switch checked={searchEnabled} onCheckedChange={onSearchEnabledChange} aria-label="Web search" />
-          </label>
-          </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button type="button" variant="ghost" size="icon" aria-label="Web search" aria-pressed={searchEnabled} disabled={isStreaming} onClick={() => onSearchEnabledChange(!searchEnabled)} className={`rounded-full ${searchEnabled ? 'bg-primary/15 text-primary ring-1 ring-primary/30 hover:bg-primary/25' : 'text-muted-foreground hover:text-foreground'}`}>
+                <Globe className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{searchEnabled ? 'Web search on' : 'Web search off'}</TooltipContent>
+          </Tooltip>
 
           <Tooltip>
             <TooltipTrigger asChild>
@@ -85,9 +85,9 @@ export default function ComposerBar({
                 disabled={sendDisabled}
                 aria-label={isStreaming ? "Stop generating" : "Send message"}
                 size="icon-lg"
-                className={isStreaming ? "bg-destructive/15 text-destructive hover:bg-destructive/25" : ""}
+                className={`rounded-full ${isStreaming ? "bg-destructive/15 text-destructive hover:bg-destructive/25" : ""}`}
               >
-                {isStreaming ? <Square /> : <Send />}
+                {isStreaming ? <Square /> : <ArrowUp className="size-5" />}
               </Button>
             </TooltipTrigger>
             <TooltipContent>{isStreaming ? "Stop generating" : "Send message"}</TooltipContent>
